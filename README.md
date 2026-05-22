@@ -53,12 +53,21 @@ python rag_pdf_parser.py --docs-dir docs --output rag_chunks.jsonl --chunk-size 
 | `text` | RAG 검색에 사용할 본문 |
 | `metadata` | 시험명, 시험일, 문서 유형 등 보조 정보 |
 
-## 3. 권장 실행 순서
+## 3. 벡터 DB 저장
+
+`rag_chroma_store.py`는 `rag_chunks.jsonl`을 읽어 Chroma 로컬 벡터 DB로 저장합니다. 기본 출력 폴더는 `chroma_db/`입니다.
+
+```powershell
+python rag_chroma_store.py --input rag_chunks.jsonl --db-dir chroma_db --reset
+```
+
+## 4. 권장 실행 순서
 
 ```powershell
 python cbt_pdf_crawler.py --start-url https://www.comcbt.com/xe/r2 --max-articles 10 --dry-run
 python cbt_pdf_crawler.py --start-url https://www.comcbt.com/xe/r2 --max-articles 10
 python rag_pdf_parser.py --docs-dir docs --output rag_chunks.jsonl
+python rag_chroma_store.py --input rag_chunks.jsonl --db-dir chroma_db --reset
 ```
 
 먼저 `--dry-run`으로 대상 PDF를 확인한 뒤 실제 다운로드하는 흐름을 권장합니다.
