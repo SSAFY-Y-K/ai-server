@@ -1,0 +1,133 @@
+from __future__ import annotations
+
+import argparse
+import csv
+from dataclasses import dataclass
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+
+from cbt_pdf_crawler import CbtPdfCrawler
+
+
+DEFAULT_JOBS_PATH = Path("crawl_jobs.csv")
+
+
+@dataclass(frozen=True)
+class CrawlJob:
+    start_url: str
+    output_dir: Path
+    max_articles: int | None
+    max_list_pages: int
+    delay: float
+    overwrite: bool
+
+
+def parse_optional_int(value: str | None) -> int | None:
+    if value is None or value.strip() == "":
+        return None
+    return int(value)
+
+
+def parse_int(value: str | None, default: int) -> int:
+    if value is None or value.strip() == "":
+        return default
+    return int(value)
+
+
+def parse_float(value: str | None, default: float) -> float:
+    if value is None or value.strip() == "":
+        return default
+    return float(value)
+
+
+def parse_bool(value: str | None, default: bool = False) -> bool:
+    if value is None or value.strip() == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def read_jobs(path: Path) -> list[CrawlJob]:
+    jobs: list[CrawlJob] = []
+
+    with path.open("r", encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file)
+        for line_number, row in enumerate(reader, start=2):
+            start_url = (row.get("start_url") or "").strip()
+            if not start_url or start_url.startswith("#"):
+                continue
+
+            output_dir = Path((row.get("output_dir") or "docs").strip())
+            jobs.append(
+                CrawlJob(
+                    start_url=start_url,
+                    output_dir=output_dir,
+                    max_articles=parse_optional_int(row.get("max_articles")),
+                    max_list_pages=parse_int(row.get("max_list_pages"), default=1),
+                    delay=parse_float(row.get("delay"), default=1.0),
+                    overwrite=parse_bool(row.get("overwrite"), default=False),
+                )
+            )
+
+    return jobs
+
+
+def run_jobs(jobs: list[CrawlJob], dry_run: bool = False) -> int:
+    total = 0
+
+    for index, job in enumerate(jobs, start=1):
+        print(f"\n[job {index}/{len(jobs)}] {job.start_url}")
+        print(f"  output_dir={job.output_dir}")
+        print(
+            "  "
+            f"max_articles={job.max_articles}, "
+            f"max_list_pages={job.max_list_pages}, "
+            f"delay={job.delay}, "
+            f"overwrite={job.overwrite}, "
+            f"dry_run={dry_run}"
+        )
+
+        crawler = CbtPdfCrawler(
+            output_dir=job.output_dir,
+            delay=job.delay,
+            overwrite=job.overwrite,
+            dry_run=dry_run,
+        )
+
+        try:
+            downloaded = crawler.crawl(
+                start_url=job.start_url,
+                max_list_pages=job.max_list_pages,
+                max_articles=job.max_articles,
+            )
+        except (HTTPError, URLError, TimeoutError) as error:
+            print(f"  [error] {error}")
+            continue
+
+        total += len(downloaded)
+        print(f"  [done] {len(downloaded)} PDF(s) matched")
+
+    return total
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run multiple COMCBT PDF crawl jobs from CSV.")
+    parser.add_argument("--jobs", type=Path, default=DEFAULT_JOBS_PATH)
+    parser.add_argument("--dry-run", action="store_true")
+    return parser
+
+
+def main() -> None:
+    args = build_arg_parser().parse_args()
+    if not args.jobs.exists():
+        raise SystemExit(f"Jobs file not found: {args.jobs}")
+
+    jobs = read_jobs(args.jobs)
+    if not jobs:
+        raise SystemExit(f"No jobs found in: {args.jobs}")
+
+    total = run_jobs(jobs, dry_run=args.dry_run)
+    print(f"\nAll jobs done. {total} PDF(s) matched.")
+
+
+if __name__ == "__main__":
+    main()

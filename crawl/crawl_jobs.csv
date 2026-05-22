@@ -1,0 +1,10 @@
+start_url,output_dir,max_articles,max_list_pages,delay,overwrite
+https://www.comcbt.com/xe/iz,docs/정보처리기사,15,2,1.0,false
+https://www.comcbt.com/xe/j3,docs/정보처리산업기사,15,2,1.0,false
+https://www.comcbt.com/xe/ccw,docs/정보보안기사,15,2,1.0,false
+https://www.comcbt.com/xe/r2,docs/리눅스마스터2급,15,2,1.0,false
+https://www.comcbt.com/xe/r1,docs/리눅스마스터1급,15,2,1.0,false
+https://www.comcbt.com/xe/jf,docs/네트워크관리사2급,15,2,1.0,false
+https://www.comcbt.com/xe/jn,docs/네트워크관리사1급,15,2,1.0,false
+https://www.comcbt.com/xe/cey,docs/정보통신기사,15,2,1.0,false
+https://www.comcbt.com/xe/j9,docs/웹디자인개발기능사,15,2,1.0,false
