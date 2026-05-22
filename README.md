@@ -53,12 +53,46 @@ python rag_pdf_parser.py --docs-dir docs --output rag_chunks.jsonl --chunk-size 
 | `text` | RAG 검색에 사용할 본문 |
 | `metadata` | 시험명, 시험일, 문서 유형 등 보조 정보 |
 
-## 3. 권장 실행 순서
+## 3. 벡터 DB 저장
+
+`rag_chroma_store.py`는 `rag_chunks.jsonl`을 읽어 Chroma 로컬 벡터 DB로 저장합니다. 기본 출력 폴더는 `chroma_db/`입니다.
+
+```powershell
+python rag_chroma_store.py --input rag_chunks.jsonl --db-dir chroma_db --reset
+```
+
+## 4. 문제 생성 API
+
+`main.py`는 FastAPI 서버입니다. 자격증 이름을 받으면 `chat_with_rag.py`가 Chroma에서 관련 청크를 검색하고, 검색 컨텍스트를 바탕으로 객관식 문제를 생성합니다.
+
+```powershell
+uvicorn main:app --reload
+```
+
+요청 예시:
+
+```http
+POST /questions/generate
+```
+
+```json
+{
+  "certification_name": "정보처리기사",
+  "question_count": 20,
+  "top_k": 12
+}
+```
+
+응답에는 생성된 문제 본문(`content`)과 참조한 PDF 출처(`sources`)가 포함됩니다.
+
+## 5. 권장 실행 순서
 
 ```powershell
 python cbt_pdf_crawler.py --start-url https://www.comcbt.com/xe/r2 --max-articles 10 --dry-run
 python cbt_pdf_crawler.py --start-url https://www.comcbt.com/xe/r2 --max-articles 10
 python rag_pdf_parser.py --docs-dir docs --output rag_chunks.jsonl
+python rag_chroma_store.py --input rag_chunks.jsonl --db-dir chroma_db --reset
+uvicorn main:app --reload
 ```
 
 먼저 `--dry-run`으로 대상 PDF를 확인한 뒤 실제 다운로드하는 흐름을 권장합니다.

@@ -3,3 +3,4 @@ __pycache__
 .env
 docs/*
 rag_chunks.jsonl
+chroma_db/
