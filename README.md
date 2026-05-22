@@ -62,3 +62,7 @@ python rag_pdf_parser.py --docs-dir docs --output rag_chunks.jsonl
 ```
 
 먼저 `--dry-run`으로 대상 PDF를 확인한 뒤 실제 다운로드하는 흐름을 권장합니다.
+
+---
+
+### [PDF 및 파싱 텍스트 다운로드](https://drive.google.com/drive/folders/1BZeehYWFoxrqVpYpuIM7dGBwnBV7onOp?usp=drive_link)
