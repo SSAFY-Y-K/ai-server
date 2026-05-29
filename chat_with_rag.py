@@ -30,13 +30,25 @@ async def generate_questions_for_certification(
         raise ValueError("top_k must be greater than 0.")
 
     docs = await retrieve_certification_docs(certification_name, top_k=top_k)
-    context = format_context(docs) or "검색된 문서가 없습니다."
+    has_context = bool(docs)
+    context = format_context(docs) or "이 자격증과 일치하는 RAG 참고자료가 없습니다."
     draft = await request_chat_completion(
-        build_generation_messages(certification_name, question_count, context),
+        build_generation_messages(
+            certification_name,
+            question_count,
+            context,
+            has_context=has_context,
+        ),
         temperature=0.4,
     )
     review_feedback = await request_chat_completion(
-        build_review_messages(certification_name, question_count, context, draft),
+        build_review_messages(
+            certification_name,
+            question_count,
+            context,
+            draft,
+            has_context=has_context,
+        ),
         temperature=0.1,
     )
     content = await request_chat_completion(
@@ -46,6 +58,7 @@ async def generate_questions_for_certification(
             context,
             draft,
             review_feedback,
+            has_context=has_context,
         ),
         temperature=0.2,
     )

@@ -55,15 +55,19 @@ python rag_pdf_parser.py --docs-dir docs --output rag_chunks.jsonl --chunk-size 
 
 ## 3. 벡터 DB 저장
 
-`rag_chroma_store.py`는 `rag_chunks.jsonl`을 읽어 Chroma 로컬 벡터 DB로 저장합니다. 기본 출력 폴더는 `chroma_db/`입니다.
+`rag_chroma_store.py`는 `rag_chunks.jsonl`과 `docs/syllabus/*.md`를 읽어 Chroma 로컬 벡터 DB로 저장합니다. 기본 출력 폴더는 `chroma_db/`입니다.
+
+`docs/syllabus`의 마크다운 파일은 자격증별 과목/범위 참고자료입니다. 파일명은 자격증명으로 사용되고, `## 과목명` 단위로 나뉘어 `doc_type=syllabus` 청크로 저장됩니다. PDF 기출 청크는 `doc_type=exam_pdf`로 저장됩니다.
 
 ```powershell
-python rag_chroma_store.py --input rag_chunks.jsonl --db-dir chroma_db --reset
+python rag_chroma_store.py --input rag_chunks.jsonl --syllabus-dir docs/syllabus --db-dir chroma_db --reset
 ```
 
 ## 4. 문제 생성 API
 
-`main.py`는 FastAPI 서버입니다. 자격증 이름을 받으면 `chat_with_rag.py`가 Chroma에서 관련 청크를 검색하고, 검색 컨텍스트를 바탕으로 객관식 문제를 생성합니다.
+`main.py`는 FastAPI 서버입니다. 자격증 이름을 받으면 `chat_with_rag.py`가 Chroma에서 같은 자격증의 syllabus와 기출 청크만 검색하고, 검색 컨텍스트를 바탕으로 객관식 문제를 생성합니다. RAG에 해당 자격증이 없으면 다른 자격증 자료를 참조하지 않고 일반 범위 기반으로 문제를 만듭니다.
+
+문제 생성은 `초안 생성 -> 검수 AI 피드백 -> 피드백 반영 최종 수정` 순서로 진행됩니다. syllabus는 과목 범위와 주제 균형에, PDF 기출은 난이도와 출제 스타일 참고에 사용합니다.
 
 ```powershell
 uvicorn main:app --reload
@@ -83,7 +87,7 @@ POST /questions/generate
 }
 ```
 
-응답에는 생성된 문제 본문(`content`)과 참조한 PDF 출처(`sources`)가 포함됩니다.
+응답에는 최종 문제 본문(`content`), 검수 피드백(`review_feedback`), 참조 출처(`sources`)가 포함됩니다.
 
 ## 5. 권장 실행 순서
 
@@ -91,7 +95,7 @@ POST /questions/generate
 python cbt_pdf_crawler.py --start-url https://www.comcbt.com/xe/r2 --max-articles 10 --dry-run
 python cbt_pdf_crawler.py --start-url https://www.comcbt.com/xe/r2 --max-articles 10
 python rag_pdf_parser.py --docs-dir docs --output rag_chunks.jsonl
-python rag_chroma_store.py --input rag_chunks.jsonl --db-dir chroma_db --reset
+python rag_chroma_store.py --input rag_chunks.jsonl --syllabus-dir docs/syllabus --db-dir chroma_db --reset
 uvicorn main:app --reload
 ```
 

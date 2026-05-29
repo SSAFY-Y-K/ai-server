@@ -13,6 +13,7 @@ from typing import Any, Iterable, TypeVar
 
 DEFAULT_INPUT = Path("rag_chunks.jsonl")
 DEFAULT_DB_DIR = Path("chroma_db")
+DEFAULT_SYLLABUS_DIR = Path("docs/syllabus")
 DEFAULT_COLLECTION = "rag_chunks"
 DEFAULT_EMBED_DIM = 768
 DEFAULT_BATCH_SIZE = 128
@@ -38,6 +39,63 @@ def load_chunks(input_path: Path) -> list[dict[str, Any]]:
             if not chunk.get("text"):
                 raise ValueError(f"Missing text at {input_path}:{line_number}")
             chunks.append(chunk)
+    return chunks
+
+
+def split_syllabus_sections(text: str) -> list[tuple[str, str]]:
+    """마크다운 syllabus를 제목 단위 섹션으로 나눈다."""
+
+    sections: list[tuple[str, list[str]]] = []
+    current_title = "개요"
+    current_lines: list[str] = []
+
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if current_lines:
+                sections.append((current_title, current_lines))
+            current_title = line.removeprefix("## ").strip() or "개요"
+            current_lines = [line]
+            continue
+        current_lines.append(line)
+
+    if current_lines:
+        sections.append((current_title, current_lines))
+
+    return [
+        (title, "\n".join(lines).strip())
+        for title, lines in sections
+        if "\n".join(lines).strip()
+    ]
+
+
+def load_syllabus_chunks(syllabus_dir: Path) -> list[dict[str, Any]]:
+    """docs/syllabus의 md 파일을 RAG 청크 형태로 변환한다."""
+
+    if not syllabus_dir.exists():
+        return []
+
+    chunks: list[dict[str, Any]] = []
+    for markdown_path in sorted(syllabus_dir.glob("*.md")):
+        certification_name = markdown_path.stem
+        text = markdown_path.read_text(encoding="utf-8")
+        for index, (subject, section_text) in enumerate(split_syllabus_sections(text), start=1):
+            chunks.append(
+                {
+                    "id": f"syllabus-{certification_name}-{index}",
+                    "source": markdown_path.name,
+                    "source_path": markdown_path.as_posix(),
+                    "category": certification_name,
+                    "page": 0,
+                    "chunk_index": index,
+                    "text": section_text,
+                    "char_count": len(section_text),
+                    "metadata": {
+                        "category": certification_name,
+                        "doc_type": "syllabus",
+                        "subject": subject,
+                    },
+                }
+            )
     return chunks
 
 
@@ -70,6 +128,7 @@ def flatten_metadata(chunk: dict[str, Any]) -> dict[str, str | int | float | boo
     """Chroma에 저장 가능한 단순 타입 metadata로 청크 정보를 펼친다."""
 
     metadata = dict(chunk.get("metadata") or {})
+    metadata.setdefault("doc_type", "exam_pdf")
     metadata.update(
         {
             "source": chunk.get("source"),
@@ -101,6 +160,7 @@ def batched(items: list[T], batch_size: int) -> Iterable[list[T]]:
 
 def build_chroma_db(
     input_path: Path,
+    syllabus_dir: Path,
     db_dir: Path,
     collection_name: str,
     embed_dim: int,
@@ -111,7 +171,7 @@ def build_chroma_db(
 
     import chromadb
 
-    chunks = load_chunks(input_path)
+    chunks = load_chunks(input_path) + load_syllabus_chunks(syllabus_dir)
     db_dir.mkdir(parents=True, exist_ok=True)
 
     client = chromadb.PersistentClient(path=str(db_dir))
@@ -154,6 +214,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Store rag_chunks.jsonl chunks in a persistent local Chroma DB."
     )
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
+    parser.add_argument("--syllabus-dir", type=Path, default=DEFAULT_SYLLABUS_DIR)
     parser.add_argument("--db-dir", type=Path, default=DEFAULT_DB_DIR)
     parser.add_argument("--collection", default=DEFAULT_COLLECTION)
     parser.add_argument("--embed-dim", type=int, default=DEFAULT_EMBED_DIM)
@@ -177,6 +238,7 @@ def main() -> None:
 
     count = build_chroma_db(
         input_path=args.input,
+        syllabus_dir=args.syllabus_dir,
         db_dir=args.db_dir,
         collection_name=args.collection,
         embed_dim=args.embed_dim,

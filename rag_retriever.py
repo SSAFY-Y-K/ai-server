@@ -27,15 +27,21 @@ async def retrieve_certification_docs(
     *,
     top_k: int = DEFAULT_TOP_K,
 ) -> list[Document]:
-    """자격증 이름으로 관련 청크를 검색하고 없으면 전체 검색으로 보완한다."""
+    """자격증 이름과 일치하는 syllabus와 기출 청크만 검색한다."""
 
     vector_db = build_vector_db()
-    query = f"{certification_name} 기출문제 핵심 개념 문제 보기 정답 해설"
+    syllabus_query = f"{certification_name} 과목 출제범위 핵심 개념 학습 내용"
+    exam_query = f"{certification_name} 기출문제 핵심 개념 문제 보기 정답 해설"
     try:
-        docs = await vector_db.asimilarity_search(
-            query,
+        syllabus_docs = await vector_db.asimilarity_search(
+            syllabus_query,
+            k=max(1, min(4, top_k)),
+            filter={"$and": [{"category": certification_name}, {"doc_type": "syllabus"}]},
+        )
+        exam_docs = await vector_db.asimilarity_search(
+            exam_query,
             k=top_k,
-            filter={"category": certification_name},
+            filter={"$and": [{"category": certification_name}, {"doc_type": "exam_pdf"}]},
         )
     except Exception as error:
         raise RuntimeError(
@@ -43,10 +49,26 @@ async def retrieve_certification_docs(
             "벡터 DB 생성 시 사용한 임베딩과 현재 설정이 일치하는지 확인하세요."
         ) from error
 
-    if docs:
-        return docs
+    return unique_documents([*syllabus_docs, *exam_docs])
 
-    return await vector_db.asimilarity_search(query, k=top_k)
+
+def unique_documents(docs: Sequence[Document]) -> list[Document]:
+    """source/page/chunk_index 기준으로 중복 문서를 제거한다."""
+
+    unique: list[Document] = []
+    seen: set[tuple[str, str, str]] = set()
+    for doc in docs:
+        metadata = doc.metadata or {}
+        key = (
+            str(metadata.get("source_path") or metadata.get("source") or ""),
+            str(metadata.get("page") or ""),
+            str(metadata.get("chunk_index") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(doc)
+    return unique
 
 
 def format_context(docs: Sequence[Document]) -> str:
@@ -58,9 +80,11 @@ def format_context(docs: Sequence[Document]) -> str:
         source = metadata.get("source") or metadata.get("source_path") or "unknown"
         page = metadata.get("page", "unknown")
         category = metadata.get("category", "")
+        doc_type = metadata.get("doc_type", "exam_pdf")
         label = f"[{index}] source={source}, page={page}"
         if category:
             label += f", category={category}"
+        label += f", doc_type={doc_type}"
         context_parts.append(f"{label}\n{doc.page_content}")
     return "\n\n".join(context_parts)
 
