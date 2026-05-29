@@ -1,3 +1,5 @@
+"""CSV에 정의된 여러 COMCBT PDF 크롤링 작업을 순차 실행한다."""
+
 from __future__ import annotations
 
 import argparse
@@ -14,6 +16,8 @@ DEFAULT_JOBS_PATH = Path("crawl_jobs.csv")
 
 @dataclass(frozen=True)
 class CrawlJob:
+    """CSV 한 줄에서 읽은 크롤링 작업 설정."""
+
     start_url: str
     output_dir: Path
     max_articles: int | None
@@ -23,30 +27,40 @@ class CrawlJob:
 
 
 def parse_optional_int(value: str | None) -> int | None:
+    """빈 문자열은 None으로, 값이 있으면 정수로 변환한다."""
+
     if value is None or value.strip() == "":
         return None
     return int(value)
 
 
 def parse_int(value: str | None, default: int) -> int:
+    """빈 문자열이면 기본값을 쓰고 아니면 정수로 변환한다."""
+
     if value is None or value.strip() == "":
         return default
     return int(value)
 
 
 def parse_float(value: str | None, default: float) -> float:
+    """빈 문자열이면 기본값을 쓰고 아니면 실수로 변환한다."""
+
     if value is None or value.strip() == "":
         return default
     return float(value)
 
 
 def parse_bool(value: str | None, default: bool = False) -> bool:
+    """CSV의 true/false 계열 문자열을 bool 값으로 변환한다."""
+
     if value is None or value.strip() == "":
         return default
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def read_jobs(path: Path) -> list[CrawlJob]:
+    """CSV 파일에서 실행할 크롤링 작업 목록을 읽는다."""
+
     jobs: list[CrawlJob] = []
 
     with path.open("r", encoding="utf-8-sig", newline="") as file:
@@ -72,6 +86,8 @@ def read_jobs(path: Path) -> list[CrawlJob]:
 
 
 def run_jobs(jobs: list[CrawlJob], dry_run: bool = False) -> int:
+    """여러 크롤링 작업을 순서대로 실행하고 매칭된 PDF 수를 합산한다."""
+
     total = 0
 
     for index, job in enumerate(jobs, start=1):
@@ -110,6 +126,8 @@ def run_jobs(jobs: list[CrawlJob], dry_run: bool = False) -> int:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    """배치 크롤링 CLI 옵션을 정의한다."""
+
     parser = argparse.ArgumentParser(description="Run multiple COMCBT PDF crawl jobs from CSV.")
     parser.add_argument("--jobs", type=Path, default=DEFAULT_JOBS_PATH)
     parser.add_argument("--dry-run", action="store_true")
@@ -117,6 +135,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """CLI 인자를 읽어 CSV 기반 배치 크롤링을 실행한다."""
+
     args = build_arg_parser().parse_args()
     if not args.jobs.exists():
         raise SystemExit(f"Jobs file not found: {args.jobs}")

@@ -1,3 +1,5 @@
+"""docs/의 PDF를 RAG 검색에 사용할 JSONL 청크로 변환한다."""
+
 from __future__ import annotations
 
 import argparse
@@ -18,12 +20,16 @@ DEFAULT_CHUNK_OVERLAP = 150
 
 @dataclass(frozen=True)
 class PageText:
+    """PDF 한 페이지에서 추출한 텍스트를 담는다."""
+
     page: int
     text: str
 
 
 @dataclass(frozen=True)
 class RagChunk:
+    """RAG에 저장할 청크 본문과 출처 metadata를 담는다."""
+
     id: str
     source: str
     source_path: str
@@ -36,21 +42,31 @@ class RagChunk:
 
 
 class PdfBackend(Protocol):
+    """PDF 파서 백엔드가 구현해야 하는 공통 인터페이스."""
+
     name: str
 
     def extract_pages(self, pdf_path: Path) -> list[PageText]:
+        """PDF 파일에서 페이지별 텍스트를 추출한다."""
+
         ...
 
 
 class PyMuPdfBackend:
+    """PyMuPDF를 사용해 PDF 텍스트를 추출하는 백엔드."""
+
     name = "pymupdf"
 
     def __init__(self) -> None:
+        """PyMuPDF 모듈을 지연 import한다."""
+
         import fitz
 
         self._fitz = fitz
 
     def extract_pages(self, pdf_path: Path) -> list[PageText]:
+        """PyMuPDF로 각 페이지의 plain text를 추출한다."""
+
         pages: list[PageText] = []
         with self._fitz.open(pdf_path) as document:
             for page_index, page in enumerate(document, start=1):
@@ -59,14 +75,20 @@ class PyMuPdfBackend:
 
 
 class PyPdfBackend:
+    """pypdf를 사용해 PDF 텍스트를 추출하는 백엔드."""
+
     name = "pypdf"
 
     def __init__(self) -> None:
+        """pypdf PdfReader를 지연 import한다."""
+
         from pypdf import PdfReader
 
         self._pdf_reader = PdfReader
 
     def extract_pages(self, pdf_path: Path) -> list[PageText]:
+        """pypdf로 각 페이지의 텍스트를 추출한다."""
+
         reader = self._pdf_reader(str(pdf_path))
         pages: list[PageText] = []
         for page_index, page in enumerate(reader.pages, start=1):
@@ -75,6 +97,8 @@ class PyPdfBackend:
 
 
 def load_pdf_backend(preferred: str = "auto") -> PdfBackend:
+    """요청한 PDF 파서 백엔드를 선택하고 사용할 수 없으면 오류를 낸다."""
+
     backends = ["pymupdf", "pypdf"] if preferred == "auto" else [preferred]
 
     errors: list[str] = []
@@ -97,10 +121,14 @@ def load_pdf_backend(preferred: str = "auto") -> PdfBackend:
 
 
 def iter_pdf_files(docs_dir: Path) -> list[Path]:
+    """docs 디렉터리 아래의 PDF 파일을 재귀적으로 찾는다."""
+
     return sorted(path for path in docs_dir.rglob("*.pdf") if path.is_file())
 
 
 def is_boilerplate_line(line: str) -> bool:
+    """COMCBT 반복 안내 문구인지 확인한다."""
+
     if not line:
         return False
 
@@ -113,6 +141,8 @@ def is_boilerplate_line(line: str) -> bool:
 
 
 def normalize_text(text: str) -> str:
+    """PDF 추출 텍스트의 공백, 문항 번호, 보기 기호 경계를 정리한다."""
+
     text = text.replace("\u00a0", " ")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -146,6 +176,8 @@ def normalize_text(text: str) -> str:
 
 
 def split_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
+    """정규화된 텍스트를 overlap이 있는 RAG 청크로 나눈다."""
+
     if chunk_size <= 0:
         raise ValueError("chunk_size must be greater than 0")
     if chunk_overlap < 0:
@@ -198,6 +230,8 @@ def split_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
 
 
 def split_long_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
+    """한 문단이 너무 길 때 공백 경계를 우선해 작은 조각으로 나눈다."""
+
     chunks: list[str] = []
     start = 0
 
@@ -220,6 +254,8 @@ def split_long_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]
 
 
 def tail_for_overlap(text: str, overlap: int) -> str:
+    """다음 청크 앞에 붙일 이전 청크의 끝부분을 만든다."""
+
     if len(text) <= overlap:
         return text
 
@@ -234,6 +270,8 @@ def tail_for_overlap(text: str, overlap: int) -> str:
 
 
 def build_chunk_id(pdf_path: Path, page: int, chunk_index: int, text: str) -> str:
+    """PDF 경로, 페이지, 청크 번호, 본문 일부로 안정적인 청크 ID를 만든다."""
+
     digest = hashlib.sha1(
         f"{pdf_path.as_posix()}:{page}:{chunk_index}:{text[:80]}".encode("utf-8")
     ).hexdigest()[:12]
@@ -241,6 +279,8 @@ def build_chunk_id(pdf_path: Path, page: int, chunk_index: int, text: str) -> st
 
 
 def extract_metadata(pdf_path: Path, docs_dir: Path) -> dict[str, str | int | None]:
+    """PDF 파일명과 폴더명에서 시험명, 날짜, 문서 유형 metadata를 추출한다."""
+
     relative = pdf_path.relative_to(docs_dir)
     category = relative.parts[0] if len(relative.parts) > 1 else ""
     stem = pdf_path.stem
@@ -263,6 +303,8 @@ def parse_pdf(
     chunk_size: int,
     chunk_overlap: int,
 ) -> list[RagChunk]:
+    """PDF 하나를 페이지별로 읽어 RAG 청크 목록으로 변환한다."""
+
     metadata = extract_metadata(pdf_path, docs_dir)
     category = str(metadata.get("category") or "")
     relative_path = pdf_path.relative_to(docs_dir).as_posix()
@@ -301,6 +343,8 @@ def parse_docs(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
 ) -> tuple[int, int, list[tuple[Path, str]]]:
+    """docs 디렉터리의 모든 PDF를 파싱해 JSONL 출력 파일을 생성한다."""
+
     pdf_files = iter_pdf_files(docs_dir)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -332,6 +376,8 @@ def parse_docs(
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    """PDF 파싱 CLI 옵션을 정의한다."""
+
     parser = argparse.ArgumentParser(description="Parse PDFs under docs/ into RAG JSONL chunks.")
     parser.add_argument("--docs-dir", type=Path, default=DEFAULT_DOCS_DIR)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -347,6 +393,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """CLI 인자를 읽어 PDF 파싱 작업을 실행한다."""
+
     args = build_arg_parser().parse_args()
     docs_dir = args.docs_dir.resolve()
     output_path = args.output.resolve()
