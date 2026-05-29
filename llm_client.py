@@ -29,3 +29,19 @@ async def request_chat_completion(
         temperature=temperature,
     )
     return response.choices[0].message.content or ""
+
+
+async def request_json_completion(
+    messages: list[dict[str, str]],
+    *,
+    temperature: float,
+) -> str:
+    """JSON 객체 반환을 강제한 채팅 모델 호출로 문자열 JSON을 반환한다."""
+
+    response = await build_client().chat.completions.create(
+        model=CHAT_MODEL,
+        messages=messages,
+        temperature=temperature,
+        response_format={"type": "json_object"},
+    )
+    return response.choices[0].message.content or "{}"
