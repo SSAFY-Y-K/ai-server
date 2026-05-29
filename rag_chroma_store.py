@@ -1,3 +1,5 @@
+"""rag_chunks.jsonl을 읽어 파일 기반 Chroma 벡터 DB로 저장한다."""
+
 from __future__ import annotations
 
 import argparse
@@ -18,6 +20,8 @@ T = TypeVar("T")
 
 
 def load_chunks(input_path: Path) -> list[dict[str, Any]]:
+    """JSONL 청크 파일을 읽고 필수 필드가 있는지 검증한다."""
+
     chunks: list[dict[str, Any]] = []
     with input_path.open("r", encoding="utf-8") as input_file:
         for line_number, line in enumerate(input_file, start=1):
@@ -38,12 +42,16 @@ def load_chunks(input_path: Path) -> list[dict[str, Any]]:
 
 
 def tokenize(text: str) -> list[str]:
+    """해시 임베딩에 사용할 한글/영문/숫자 토큰을 추출한다."""
+
     words = re.findall(r"[가-힣A-Za-z0-9]+", text.lower())
     chars = [char for char in text if "\uac00" <= char <= "\ud7a3"]
     return words + chars
 
 
 def hash_embedding(text: str, dimension: int) -> list[float]:
+    """외부 모델 없이 텍스트를 고정 길이 정규화 벡터로 변환한다."""
+
     vector = [0.0] * dimension
     for token in tokenize(text):
         digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
@@ -59,6 +67,8 @@ def hash_embedding(text: str, dimension: int) -> list[float]:
 
 
 def flatten_metadata(chunk: dict[str, Any]) -> dict[str, str | int | float | bool]:
+    """Chroma에 저장 가능한 단순 타입 metadata로 청크 정보를 펼친다."""
+
     metadata = dict(chunk.get("metadata") or {})
     metadata.update(
         {
@@ -83,6 +93,8 @@ def flatten_metadata(chunk: dict[str, Any]) -> dict[str, str | int | float | boo
 
 
 def batched(items: list[T], batch_size: int) -> Iterable[list[T]]:
+    """긴 목록을 Chroma upsert용 배치로 나눈다."""
+
     for start in range(0, len(items), batch_size):
         yield items[start : start + batch_size]
 
@@ -95,6 +107,8 @@ def build_chroma_db(
     batch_size: int,
     reset: bool,
 ) -> int:
+    """청크를 임베딩하고 Chroma persistent collection에 저장한다."""
+
     import chromadb
 
     chunks = load_chunks(input_path)
@@ -134,6 +148,8 @@ def build_chroma_db(
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    """벡터 DB 생성 옵션을 받는 CLI 파서를 만든다."""
+
     parser = argparse.ArgumentParser(
         description="Store rag_chunks.jsonl chunks in a persistent local Chroma DB."
     )
@@ -151,6 +167,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """CLI 인자를 읽어 Chroma DB 저장 작업을 실행한다."""
+
     args = build_arg_parser().parse_args()
     if args.embed_dim <= 0:
         raise SystemExit("--embed-dim must be greater than 0")
