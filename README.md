@@ -13,15 +13,15 @@ python cbt_pdf_crawler.py --start-url https://www.comcbt.com/xe/r2 --max-article
 
 주요 옵션:
 
-| 옵션 | 기본값 | 설명 |
-| --- | --- | --- |
-| `--start-url` | `https://www.comcbt.com/xe/r2` | 게시판 목록 URL 또는 상세 글 URL |
-| `--output-dir` | `docs` | PDF 저장 폴더 |
-| `--max-list-pages` | `1` | 게시판 목록을 몇 페이지까지 순회할지 설정 |
-| `--max-articles` | 없음 | 상세 글 최대 처리 개수 |
-| `--delay` | `1.0` | 요청 사이 대기 시간(초) |
-| `--overwrite` | 꺼짐 | 이미 저장된 PDF를 다시 다운로드 |
-| `--dry-run` | 꺼짐 | 실제 저장 없이 대상 PDF 링크만 출력 |
+| 옵션               | 기본값                         | 설명                                      |
+| ------------------ | ------------------------------ | ----------------------------------------- |
+| `--start-url`      | `https://www.comcbt.com/xe/r2` | 게시판 목록 URL 또는 상세 글 URL          |
+| `--output-dir`     | `docs`                         | PDF 저장 폴더                             |
+| `--max-list-pages` | `1`                            | 게시판 목록을 몇 페이지까지 순회할지 설정 |
+| `--max-articles`   | 없음                           | 상세 글 최대 처리 개수                    |
+| `--delay`          | `1.0`                          | 요청 사이 대기 시간(초)                   |
+| `--overwrite`      | 꺼짐                           | 이미 저장된 PDF를 다시 다운로드           |
+| `--dry-run`        | 꺼짐                           | 실제 저장 없이 대상 PDF 링크만 출력       |
 
 다른 시험 게시판도 같은 구조라면 `--start-url`만 바꾸면 됩니다.
 
@@ -42,16 +42,16 @@ python rag_pdf_parser.py --docs-dir docs --output rag_chunks.jsonl --chunk-size 
 
 생성되는 JSONL 필드:
 
-| 필드 | 설명 |
-| --- | --- |
-| `id` | 문서명, 페이지, 청크 번호를 조합한 고유 ID |
-| `source` | 원본 PDF 파일명 |
-| `source_path` | `docs/` 기준 원본 PDF 경로 |
-| `category` | `docs/` 하위 폴더명 |
-| `page` | PDF 페이지 번호 |
-| `chunk_index` | 페이지 안의 청크 번호 |
-| `text` | RAG 검색에 사용할 본문 |
-| `metadata` | 시험명, 시험일, 문서 유형 등 보조 정보 |
+| 필드          | 설명                                       |
+| ------------- | ------------------------------------------ |
+| `id`          | 문서명, 페이지, 청크 번호를 조합한 고유 ID |
+| `source`      | 원본 PDF 파일명                            |
+| `source_path` | `docs/` 기준 원본 PDF 경로                 |
+| `category`    | `docs/` 하위 폴더명                        |
+| `page`        | PDF 페이지 번호                            |
+| `chunk_index` | 페이지 안의 청크 번호                      |
+| `text`        | RAG 검색에 사용할 본문                     |
+| `metadata`    | 시험명, 시험일, 문서 유형 등 보조 정보     |
 
 ## 3. 벡터 DB 저장
 
@@ -81,9 +81,9 @@ POST /questions/generate
 
 ```json
 {
-  "certification_name": "정보처리기사",
-  "question_count": 20,
-  "top_k": 12
+	"certification_name": "정보처리기사",
+	"question_count": 20,
+	"top_k": 12
 }
 ```
 
@@ -92,8 +92,8 @@ POST /questions/generate
 ## 5. 권장 실행 순서
 
 ```powershell
-python cbt_pdf_crawler.py --start-url https://www.comcbt.com/xe/r2 --max-articles 10 --dry-run
-python cbt_pdf_crawler.py --start-url https://www.comcbt.com/xe/r2 --max-articles 10
+python ./crawl/cbt_pdf_crawler.py --start-url https://www.comcbt.com/xe/r2 --max-articles 10 --dry-run
+python ./crawl/cbt_pdf_crawler.py --start-url https://www.comcbt.com/xe/r2 --max-articles 10
 python rag_pdf_parser.py --docs-dir docs --output rag_chunks.jsonl
 python rag_chroma_store.py --input rag_chunks.jsonl --syllabus-dir docs/syllabus --db-dir chroma_db --reset
 uvicorn main:app --reload
