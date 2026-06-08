@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from langchain_chroma import Chroma
+from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 
 from rag_config import CHROMA_COLLECTION, CHROMA_DIR, DEFAULT_TOP_K

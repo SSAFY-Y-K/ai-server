@@ -65,9 +65,9 @@ python rag_chroma_store.py --input rag_chunks.jsonl --syllabus-dir docs/syllabus
 
 ## 4. 문제 생성 API
 
-`main.py`는 FastAPI 서버입니다. 자격증 이름을 받으면 `chat_with_rag.py`가 Chroma에서 같은 자격증의 syllabus와 기출 청크만 검색하고, 검색 컨텍스트를 바탕으로 객관식 문제를 생성합니다. RAG에 해당 자격증이 없으면 다른 자격증 자료를 참조하지 않고 일반 범위 기반으로 문제를 만듭니다.
+`main.py`는 FastAPI 서버입니다. 자격증 이름을 받으면 `chat_with_rag.py`가 Chroma에서 같은 자격증의 syllabus와 기출 청크만 검색하고, 검색 컨텍스트를 바탕으로 문제 JSON을 생성합니다. RAG에 해당 자격증이 없으면 다른 자격증 자료를 참조하지 않고 일반 범위 기반으로 문제를 만듭니다.
 
-문제 생성은 `초안 생성 -> 검수 AI 피드백 -> 피드백 반영 최종 수정` 순서로 진행됩니다. syllabus는 과목 범위와 주제 균형에, PDF 기출은 난이도와 출제 스타일 참고에 사용합니다.
+문제 생성은 `초안 생성 -> 검수 AI 피드백 -> 피드백 반영 최종 수정` 순서로 진행됩니다. syllabus는 과목 범위와 주제 균형에, PDF 기출은 난이도와 출제 스타일 참고에 사용합니다. 최종 응답은 객관식(`MULTIPLE`)과 주관식(`SHORT_ANSWER`)을 함께 표현할 수 있는 JSON 스키마로 반환됩니다.
 
 ```powershell
 uvicorn main:app --reload
@@ -81,13 +81,63 @@ POST /questions/generate
 
 ```json
 {
-	"certification_name": "정보처리기사",
-	"question_count": 20,
-	"top_k": 12
+  "certification": "정보처리기사",
+  "questionCount": 20
 }
 ```
 
-응답에는 최종 문제 본문(`content`), 검수 피드백(`review_feedback`), 참조 출처(`sources`)가 포함됩니다.
+`topK`는 선택값이며 생략 시 기본값을 사용합니다.
+
+```json
+{
+  "userId": null,
+  "certId": null,
+  "problemCount": 2,
+  "problems": [
+    {
+      "problemId": null,
+      "problemSetId": null,
+      "problemNumber": 1,
+      "problemType": "MULTIPLE",
+      "question": "다음 중 Java의 특징으로 가장 알맞은 것은?",
+      "answerCorrectNumber": 2,
+      "answerText": null,
+      "problemChoices": [
+        {
+          "problemId": null,
+          "choiceNumber": 1,
+          "content": "한 번 컴파일된 코드는 모든 환경에서 소스 수정 없이 항상 동일하게 실행된다."
+        },
+        {
+          "problemId": null,
+          "choiceNumber": 2,
+          "content": "플랫폼 독립성이 높아 JVM이 설치된 환경에서 실행할 수 있다."
+        },
+        {
+          "problemId": null,
+          "choiceNumber": 3,
+          "content": "인터프리터 언어이므로 컴파일 과정이 전혀 없다."
+        },
+        {
+          "problemId": null,
+          "choiceNumber": 4,
+          "content": "포인터 연산을 기본적으로 강제한다."
+        }
+      ]
+    },
+    {
+      "problemId": null,
+      "problemSetId": null,
+      "problemNumber": 2,
+      "problemType": "SHORT_ANSWER",
+      "question": "HTTP 상태 코드 404의 의미를 쓰시오.",
+      "answerCorrectNumber": null,
+      "answerText": "Not Found",
+      "problemChoices": null
+    }
+  ]
+}
+```
 
 ## 5. 권장 실행 순서
 

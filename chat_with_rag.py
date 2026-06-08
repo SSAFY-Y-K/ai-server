@@ -3,14 +3,39 @@
 from __future__ import annotations
 
 from llm_client import request_chat_completion
+from pydantic import ValidationError
 from question_prompts import (
     build_generation_messages,
     build_review_messages,
     build_revision_messages,
 )
 from rag_config import DEFAULT_QUESTION_COUNT, DEFAULT_TOP_K
-from rag_models import GeneratedQuestionSet
+from rag_models import GeneratedQuestionSet, ProblemSetPayload
 from rag_retriever import collect_sources, format_context, retrieve_certification_docs
+
+
+def parse_problem_set_payload(raw_content: str) -> ProblemSetPayload:
+    """LLM 응답에서 JSON 객체를 추출해 최종 문제 세트로 검증한다."""
+
+    content = raw_content.strip()
+    if content.startswith("```"):
+        lines = content.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        content = "\n".join(lines).strip()
+
+    start = content.find("{")
+    end = content.rfind("}")
+    if start == -1 or end == -1 or start >= end:
+        raise RuntimeError("LLM did not return a valid JSON object.")
+
+    json_text = content[start : end + 1]
+    try:
+        return ProblemSetPayload.model_validate_json(json_text)
+    except ValidationError as error:
+        raise RuntimeError(f"LLM returned an invalid problem set payload: {error}") from error
 
 
 async def generate_questions_for_certification(
@@ -51,7 +76,7 @@ async def generate_questions_for_certification(
         ),
         temperature=0.1,
     )
-    content = await request_chat_completion(
+    final_content = await request_chat_completion(
         build_revision_messages(
             certification_name,
             question_count,
@@ -62,10 +87,12 @@ async def generate_questions_for_certification(
         ),
         temperature=0.2,
     )
+    problem_set = parse_problem_set_payload(final_content)
+
     return GeneratedQuestionSet(
         certification_name=certification_name,
         question_count=question_count,
-        content=content,
+        problem_set=problem_set,
         review_feedback=review_feedback,
         sources=collect_sources(docs),
     )
