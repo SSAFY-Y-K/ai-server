@@ -2,24 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Literal
 
-PROBLEM_SET_FORMAT_GUIDE = """반드시 아래 JSON 객체 형식으로만 답하라. 설명, 코드블록, 마크다운을 추가하지 마라.
+
+SINGLE_PROBLEM_FORMAT_GUIDE = """반드시 아래 JSON 객체 형식으로만 답하라. 설명, 코드블록, 마크다운을 추가하지 마라.
 {
-  "userId": null,
-  "certId": null,
-  "problemCount": <생성한 문제 수>,
-  "problems": [
-    {
-      "problemId": null,
-      "problemSetId": null,
-      "problemNumber": 1,
-      "problemType": "MULTIPLE" 또는 "SHORT_ANSWER",
-      "question": "문제 본문",
-      "answerCorrectNumber": <객관식 정답 번호 또는 null>,
-      "answerText": <주관식 정답 문자열 또는 null>,
-      "problemChoices": <객관식 보기 배열 또는 null>
-    }
-  ]
+  "problemType": "MULTIPLE" 또는 "SHORT_ANSWER",
+  "question": "문제 본문",
+  "answerCorrectNumber": <객관식 정답 번호 또는 null>,
+  "answerText": <주관식 정답 문자열 또는 null>,
+  "problemChoices": <객관식 보기 배열 또는 null>
 }
 
 problemChoices는 MULTIPLE일 때만 사용하며 정확히 4개의 보기를 포함한다.
@@ -33,9 +25,7 @@ problemChoices 각 항목 형식:
 규칙:
 - problemType이 MULTIPLE이면 answerCorrectNumber는 반드시 1~4 숫자, answerText는 null, problemChoices는 4개 배열
 - problemType이 SHORT_ANSWER이면 answerCorrectNumber는 null, answerText는 비어 있지 않은 문자열, problemChoices는 null
-- problemNumber는 1부터 순서대로 증가
-- problemCount는 problems 배열 길이와 정확히 같아야 함
-- userId, certId, problemId, problemSetId는 모두 null로 유지
+- 이번 호출에서는 문제를 정확히 1개만 생성
 - 모든 문제와 보기 텍스트는 한국어로 작성
 - JSON 문법이 완전히 유효해야 함"""
 
@@ -58,14 +48,28 @@ def context_policy(has_context: bool) -> str:
     )
 
 
+def problem_type_policy(problem_type: Literal["MULTIPLE", "SHORT_ANSWER"]) -> str:
+    """요청된 문제 유형에 맞는 단일 유형 강제 지침을 만든다."""
+
+    if problem_type == "MULTIPLE":
+        return (
+            '이번 호출에서는 problemType을 반드시 "MULTIPLE"로 작성하라. '
+            "객관식 4지선다 1문제만 생성하고 SHORT_ANSWER는 사용하지 마라."
+        )
+    return (
+        '이번 호출에서는 problemType을 반드시 "SHORT_ANSWER"로 작성하라. '
+        "주관식 1문제만 생성하고 MULTIPLE은 사용하지 마라."
+    )
+
+
 def build_generation_messages(
     certification_name: str,
-    question_count: int,
     context: str,
+    problem_type: Literal["MULTIPLE", "SHORT_ANSWER"],
     *,
     has_context: bool,
 ) -> list[dict[str, str]]:
-    """문제 초안 생성을 위한 system/user 메시지를 구성한다."""
+    """문제 1개 초안 생성을 위한 system/user 메시지를 구성한다."""
 
     return [
         {
@@ -73,8 +77,8 @@ def build_generation_messages(
             "content": (
                 "너는 자격증 문제 출제 도우미다. "
                 f"{context_policy(has_context)} "
-                "사용자가 요청한 자격증에 맞는 문제 세트를 JSON으로 생성한다. "
-                "문제 유형은 MULTIPLE 또는 SHORT_ANSWER만 사용한다. "
+                f"{problem_type_policy(problem_type)} "
+                "사용자가 요청한 자격증에 맞는 문제 1개를 JSON으로 생성한다. "
                 "출력은 반드시 유효한 JSON 객체 하나만 반환한다."
             ),
         },
@@ -82,16 +86,16 @@ def build_generation_messages(
             "role": "user",
             "content": (
                 f"자격증 이름: {certification_name}\n"
-                f"생성할 문제 수: {question_count}개\n"
+                "이번 호출에서 생성할 문제 수: 1개\n"
                 f"RAG 참고자료 존재 여부: {'있음' if has_context else '없음'}\n\n"
                 "생성 요구사항:\n"
-                "- 정확히 요청한 문제 수만 생성\n"
-                "- 같은 문제나 보기를 반복하지 말 것\n"
+                "- 이번 호출에서는 문제를 정확히 1개만 생성\n"
                 "- 자격증 범위와 무관한 다른 자격증 내용을 섞지 말 것\n"
                 "- RAG 참고자료가 있더라도 원문을 그대로 가져오지 말고 변형/신규 작성할 것\n"
+                f"- 요청된 문제 유형만 사용: {problem_type}\n"
                 "- 객관식은 4지선다만 허용\n"
-                "- 주관식은 짧고 명확한 정답 문자열을 사용\n\n"
-                f"{PROBLEM_SET_FORMAT_GUIDE}\n\n"
+                "- 주관식은 짧고 명확한 정답 문자열을 사용\n"
+                f"{SINGLE_PROBLEM_FORMAT_GUIDE}\n\n"
                 f"RAG 검색 컨텍스트:\n{context}"
             ),
         },
@@ -100,13 +104,13 @@ def build_generation_messages(
 
 def build_review_messages(
     certification_name: str,
-    question_count: int,
     context: str,
     draft: str,
+    problem_type: Literal["MULTIPLE", "SHORT_ANSWER"],
     *,
     has_context: bool,
 ) -> list[dict[str, str]]:
-    """생성된 초안이 요구사항과 RAG 사용 방침을 잘 따르는지 검수하는 메시지를 만든다."""
+    """생성된 문제 1개 초안이 요구사항과 RAG 사용 방침을 잘 따르는지 검수한다."""
 
     return [
         {
@@ -114,6 +118,7 @@ def build_review_messages(
             "content": (
                 "너는 자격증 문제 검수 담당 AI다. "
                 f"{context_policy(has_context)} "
+                f"{problem_type_policy(problem_type)} "
                 "초안 JSON의 구조, 문제 수, 문제 유형별 필드 규칙, 자격증 적합성, 중복 여부를 검수한다. "
                 "직접 최종 JSON을 다시 쓰지 말고, 개선해야 할 피드백만 간결하게 제시한다."
             ),
@@ -122,19 +127,18 @@ def build_review_messages(
             "role": "user",
             "content": (
                 f"자격증 이름: {certification_name}\n"
-                f"요구 문제 수: {question_count}개\n"
+                "이번 호출의 요구 문제 수: 1개\n"
                 f"RAG 참고자료 존재 여부: {'있음' if has_context else '없음'}\n\n"
-                f"{PROBLEM_SET_FORMAT_GUIDE}\n\n"
+                f"{SINGLE_PROBLEM_FORMAT_GUIDE}\n\n"
                 f"RAG 검색 컨텍스트:\n{context}\n\n"
                 f"문제 초안 JSON:\n{draft}\n\n"
                 "검수 기준:\n"
-                "- problemCount가 실제 문제 수와 일치하는가\n"
-                "- problemNumber가 1번부터 순서대로 증가하는가\n"
+                "- 실제 문제를 정확히 1개만 담은 JSON 객체인가\n"
+                f"- problemType이 요청된 유형({problem_type})과 정확히 일치하는가\n"
                 "- MULTIPLE 문제는 answerCorrectNumber, problemChoices 규칙을 지키는가\n"
                 "- SHORT_ANSWER 문제는 answerText, null 필드 규칙을 지키는가\n"
                 "- 요청한 자격증과 무관한 다른 자격증 내용이 섞였는가\n"
                 "- RAG 참고자료 원문을 그대로 복사한 문제가 있는가\n"
-                "- 중복되거나 지나치게 유사한 문제가 있는가\n"
                 "- JSON으로 바로 파싱하기 어려운 표현이 있는가"
             ),
         },
@@ -143,14 +147,14 @@ def build_review_messages(
 
 def build_revision_messages(
     certification_name: str,
-    question_count: int,
     context: str,
     draft: str,
     review_feedback: str,
+    problem_type: Literal["MULTIPLE", "SHORT_ANSWER"],
     *,
     has_context: bool,
 ) -> list[dict[str, str]]:
-    """검수 피드백을 반영해 최종 문제 세트를 다시 작성하는 메시지를 만든다."""
+    """검수 피드백을 반영해 문제 1개 완성본 JSON을 다시 작성하는 메시지를 만든다."""
 
     return [
         {
@@ -158,6 +162,7 @@ def build_revision_messages(
             "content": (
                 "너는 자격증 문제 JSON을 최종 편집하는 AI다. "
                 f"{context_policy(has_context)} "
+                f"{problem_type_policy(problem_type)} "
                 "검수 피드백을 반영해 완성본 JSON만 작성한다. "
                 "설명, 코드블록, 마크다운 없이 유효한 JSON 객체 하나만 출력한다."
             ),
@@ -166,16 +171,15 @@ def build_revision_messages(
             "role": "user",
             "content": (
                 f"자격증 이름: {certification_name}\n"
-                f"최종 문제 수: {question_count}개\n"
+                "이번 호출의 최종 문제 수: 1개\n"
                 f"RAG 참고자료 존재 여부: {'있음' if has_context else '없음'}\n\n"
-                f"{PROBLEM_SET_FORMAT_GUIDE}\n\n"
+                f"{SINGLE_PROBLEM_FORMAT_GUIDE}\n\n"
                 f"RAG 검색 컨텍스트:\n{context}\n\n"
                 f"문제 초안 JSON:\n{draft}\n\n"
                 f"검수 피드백:\n{review_feedback}\n\n"
                 "최종 작성 조건:\n"
-                "- 정확히 요청한 문제 수만 작성\n"
-                "- userId, certId, problemId, problemSetId는 모두 null\n"
-                "- problemNumber는 1부터 순서대로 작성\n"
+                "- 이번 호출에서는 문제를 정확히 1개만 작성\n"
+                f"- problemType은 반드시 {problem_type}\n"
                 "- 다른 자격증명을 근거로 들거나 섞지 말 것\n"
                 "- RAG 참고자료가 있어도 원문을 그대로 복사하지 말 것\n"
                 "- 최종 답변은 JSON 객체 하나만 출력"

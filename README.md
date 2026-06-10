@@ -67,7 +67,7 @@ python rag_chroma_store.py --input rag_chunks.jsonl --syllabus-dir docs/syllabus
 
 `main.py`는 FastAPI 서버입니다. 자격증 이름을 받으면 `chat_with_rag.py`가 Chroma에서 같은 자격증의 syllabus와 기출 청크만 검색하고, 검색 컨텍스트를 바탕으로 문제 JSON을 생성합니다. RAG에 해당 자격증이 없으면 다른 자격증 자료를 참조하지 않고 일반 범위 기반으로 문제를 만듭니다.
 
-문제 생성은 `초안 생성 -> 검수 AI 피드백 -> 피드백 반영 최종 수정` 순서로 진행됩니다. syllabus는 과목 범위와 주제 균형에, PDF 기출은 난이도와 출제 스타일 참고에 사용합니다. 최종 응답은 객관식(`MULTIPLE`)과 주관식(`SHORT_ANSWER`)을 함께 표현할 수 있는 JSON 스키마로 반환됩니다.
+문제 생성은 `초안 생성 -> 검수 AI 피드백 -> 피드백 반영 최종 수정` 순서로 진행됩니다. syllabus는 과목 범위와 주제 균형에, PDF 기출은 난이도와 출제 스타일 참고에 사용합니다. 요청은 한 번에 문제 1개만 생성하며, `problemType`으로 객관식(`MULTIPLE_CHOICE`) 또는 주관식(`SHORT_ANSWER`)을 지정합니다. `CODING`은 현재 이 엔드포인트에서 지원하지 않습니다. `MULTIPLE_CHOICE` 요청은 평평한 객관식 JSON으로, `SHORT_ANSWER` 요청은 `question`과 `answer`만 가진 평평한 JSON으로 반환됩니다.
 
 ```powershell
 uvicorn main:app --reload
@@ -81,61 +81,30 @@ POST /questions/generate
 
 ```json
 {
-  "certification": "정보처리기사",
-  "questionCount": 20
+	"certification": "정보처리기사",
+	"problemType": "MULTIPLE_CHOICE"
 }
 ```
 
-`topK`는 선택값이며 생략 시 기본값을 사용합니다.
+`problemType`은 `MULTIPLE_CHOICE`, `SHORT_ANSWER`, `CODING` 중 하나를 받을 수 있지만, 현재 `/questions/generate`에서는 `MULTIPLE_CHOICE`와 `SHORT_ANSWER`만 지원합니다.
 
 ```json
 {
-  "userId": null,
-  "certId": null,
-  "problemCount": 2,
-  "problems": [
-    {
-      "problemId": null,
-      "problemSetId": null,
-      "problemNumber": 1,
-      "problemType": "MULTIPLE",
-      "question": "다음 중 Java의 특징으로 가장 알맞은 것은?",
-      "answerCorrectNumber": 2,
-      "answerText": null,
-      "problemChoices": [
-        {
-          "problemId": null,
-          "choiceNumber": 1,
-          "content": "한 번 컴파일된 코드는 모든 환경에서 소스 수정 없이 항상 동일하게 실행된다."
-        },
-        {
-          "problemId": null,
-          "choiceNumber": 2,
-          "content": "플랫폼 독립성이 높아 JVM이 설치된 환경에서 실행할 수 있다."
-        },
-        {
-          "problemId": null,
-          "choiceNumber": 3,
-          "content": "인터프리터 언어이므로 컴파일 과정이 전혀 없다."
-        },
-        {
-          "problemId": null,
-          "choiceNumber": 4,
-          "content": "포인터 연산을 기본적으로 강제한다."
-        }
-      ]
-    },
-    {
-      "problemId": null,
-      "problemSetId": null,
-      "problemNumber": 2,
-      "problemType": "SHORT_ANSWER",
-      "question": "HTTP 상태 코드 404의 의미를 쓰시오.",
-      "answerCorrectNumber": null,
-      "answerText": "Not Found",
-      "problemChoices": null
-    }
-  ]
+  "question": "다음 중 정보처리기사 시험에서 소프트웨어 개발 방법론에 대한 설명으로 옳지 않은 것은 무엇인가?",
+  "choice1Content": "애자일 방법론은 유연성과 반복성을 강조한다.",
+  "choice2Content": "폭포수 모델은 단계별 순차적 개발 프로세스를 따른다.",
+  "choice3Content": "프로토타입 모델은 사용자 요구사항을 빠르게 반영하는 데 적합하다.",
+  "choice4Content": "기능 중심 설계는 전체 시스템을 먼저 설계한 후 개발하는 방식이다.",
+  "answerNumber": 4
+}
+```
+
+주관식 응답 예시:
+
+```json
+{
+  "question": "정보처리기사 시험에서 분할과 정복 기법이 포함된 소프트웨어 개발 방법론은 무엇인가?",
+  "answer": "구조적 방법론"
 }
 ```
 

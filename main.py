@@ -7,10 +7,12 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from algorithm_generator import generate_algorithm_problem
-from chat_with_rag import generate_questions_for_certification
-from rag_config import DEFAULT_TOP_K
-from rag_models import ProblemSetPayload
+from chat_with_rag import generate_question_for_certification
+from rag_models import (
+    MultipleChoiceProblemResponse,
+    ProblemItem,
+    ShortAnswerProblemResponse,
+)
 
 
 app = FastAPI(title="Certification RAG Question Generator")
@@ -20,8 +22,43 @@ class GenerateQuestionsRequest(BaseModel):
     """문제 생성 API가 받는 요청 본문 구조."""
 
     certification: str = Field(..., min_length=1, examples=["정보처리기사"])
-    questionCount: int = Field(default=20, ge=1, le=50)
-    topK: int = Field(default=DEFAULT_TOP_K, ge=1, le=50)
+    problemType: Literal["MULTIPLE_CHOICE", "SHORT_ANSWER", "CODING"] = Field(
+        ...,
+        examples=["MULTIPLE_CHOICE", "SHORT_ANSWER", "CODING"],
+    )
+
+
+def build_multiple_choice_response(problem: ProblemItem) -> MultipleChoiceProblemResponse:
+    """내부 단일 문제 구조를 외부 객관식 단일 문제 응답 구조로 변환한다."""
+
+    if problem.problemType != "MULTIPLE" or not problem.problemChoices:
+        raise RuntimeError("Expected a MULTIPLE problem with four choices.")
+
+    choices = {choice.choiceNumber: choice.content for choice in problem.problemChoices}
+    required_numbers = {1, 2, 3, 4}
+    if set(choices) != required_numbers:
+        raise RuntimeError("Expected MULTIPLE problem choices numbered 1 through 4.")
+
+    return MultipleChoiceProblemResponse(
+        question=problem.question,
+        choice1Content=choices[1],
+        choice2Content=choices[2],
+        choice3Content=choices[3],
+        choice4Content=choices[4],
+        answerNumber=problem.answerCorrectNumber,
+    )
+
+
+def build_short_answer_response(problem: ProblemItem) -> ShortAnswerProblemResponse:
+    """내부 단일 문제 구조를 외부 주관식 단일 문제 응답 구조로 변환한다."""
+
+    if problem.problemType != "SHORT_ANSWER" or not problem.answerText:
+        raise RuntimeError("Expected a SHORT_ANSWER problem with a non-empty answer.")
+
+    return ShortAnswerProblemResponse(
+        question=problem.question,
+        answer=problem.answerText,
+    )
 
 
 # ── 알고리즘 문제 생성 ────────────────────────────────────────────────────────
@@ -100,19 +137,34 @@ def read_root() -> dict[str, str]:
     return {"message": "Certification RAG Question Generator"}
 
 
-@app.post("/questions/generate", response_model=ProblemSetPayload)
-async def generate_questions(request: GenerateQuestionsRequest) -> ProblemSetPayload:
+@app.post(
+    "/questions/generate",
+    response_model=MultipleChoiceProblemResponse | ShortAnswerProblemResponse,
+)
+async def generate_questions(
+    request: GenerateQuestionsRequest,
+) -> MultipleChoiceProblemResponse | ShortAnswerProblemResponse:
     """자격증 이름을 받아 RAG 기반 문제 세트를 생성한다."""
 
     try:
-        result = await generate_questions_for_certification(
+        if request.problemType == "CODING":
+            raise ValueError(
+                "CODING problemType is not supported by /questions/generate. "
+                "This endpoint currently supports only MULTIPLE_CHOICE and SHORT_ANSWER."
+            )
+
+        result = await generate_question_for_certification(
             request.certification,
-            question_count=request.questionCount,
-            top_k=request.topK,
+            problem_type=(
+                "MULTIPLE" if request.problemType == "MULTIPLE_CHOICE" else "SHORT_ANSWER"
+            ),
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except RuntimeError as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
 
-    return result.problem_set
+    if request.problemType == "MULTIPLE_CHOICE":
+        return build_multiple_choice_response(result.problem)
+
+    return build_short_answer_response(result.problem)

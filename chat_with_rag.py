@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from llm_client import request_chat_completion
 from pydantic import ValidationError
 from question_prompts import (
@@ -9,13 +11,13 @@ from question_prompts import (
     build_review_messages,
     build_revision_messages,
 )
-from rag_config import DEFAULT_QUESTION_COUNT, DEFAULT_TOP_K
-from rag_models import GeneratedQuestionSet, ProblemSetPayload
+from rag_config import DEFAULT_TOP_K
+from rag_models import GeneratedQuestion, ProblemItem
 from rag_retriever import collect_sources, format_context, retrieve_certification_docs
 
 
-def parse_problem_set_payload(raw_content: str) -> ProblemSetPayload:
-    """LLM 응답에서 JSON 객체를 추출해 최종 문제 세트로 검증한다."""
+def parse_problem(raw_content: str) -> ProblemItem:
+    """LLM 응답에서 JSON 객체를 추출해 단일 문제로 검증한다."""
 
     content = raw_content.strip()
     if content.startswith("```"):
@@ -33,26 +35,26 @@ def parse_problem_set_payload(raw_content: str) -> ProblemSetPayload:
 
     json_text = content[start : end + 1]
     try:
-        return ProblemSetPayload.model_validate_json(json_text)
+        return ProblemItem.model_validate_json(json_text)
     except ValidationError as error:
-        raise RuntimeError(f"LLM returned an invalid problem set payload: {error}") from error
+        raise RuntimeError(f"LLM returned an invalid problem payload: {error}") from error
 
 
-async def generate_questions_for_certification(
+async def generate_question_for_certification(
     certification_name: str,
     *,
-    question_count: int = DEFAULT_QUESTION_COUNT,
     top_k: int = DEFAULT_TOP_K,
-) -> GeneratedQuestionSet:
-    """자격증 이름을 입력받아 RAG 검색 후 최종 문제 세트를 생성한다."""
+    problem_type: Literal["MULTIPLE", "SHORT_ANSWER"],
+) -> GeneratedQuestion:
+    """자격증 이름을 입력받아 RAG 검색 후 단일 문제를 생성한다."""
 
     certification_name = certification_name.strip()
     if not certification_name:
         raise ValueError("certification_name is required.")
-    if question_count <= 0:
-        raise ValueError("question_count must be greater than 0.")
     if top_k <= 0:
         raise ValueError("top_k must be greater than 0.")
+    if problem_type not in {"MULTIPLE", "SHORT_ANSWER"}:
+        raise ValueError("problem_type must be MULTIPLE or SHORT_ANSWER.")
 
     docs = await retrieve_certification_docs(certification_name, top_k=top_k)
     has_context = bool(docs)
@@ -60,8 +62,8 @@ async def generate_questions_for_certification(
     draft = await request_chat_completion(
         build_generation_messages(
             certification_name,
-            question_count,
             context,
+            problem_type,
             has_context=has_context,
         ),
         temperature=0.4,
@@ -69,9 +71,9 @@ async def generate_questions_for_certification(
     review_feedback = await request_chat_completion(
         build_review_messages(
             certification_name,
-            question_count,
             context,
             draft,
+            problem_type,
             has_context=has_context,
         ),
         temperature=0.1,
@@ -79,20 +81,21 @@ async def generate_questions_for_certification(
     final_content = await request_chat_completion(
         build_revision_messages(
             certification_name,
-            question_count,
             context,
             draft,
             review_feedback,
+            problem_type,
             has_context=has_context,
         ),
         temperature=0.2,
     )
-    problem_set = parse_problem_set_payload(final_content)
+    problem = parse_problem(final_content)
+    if problem.problemType != problem_type:
+        raise RuntimeError("LLM returned a problemType that does not match the requested type.")
 
-    return GeneratedQuestionSet(
+    return GeneratedQuestion(
         certification_name=certification_name,
-        question_count=question_count,
-        problem_set=problem_set,
+        problem=problem,
         review_feedback=review_feedback,
         sources=collect_sources(docs),
     )

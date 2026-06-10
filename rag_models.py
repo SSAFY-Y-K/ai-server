@@ -28,9 +28,6 @@ class ProblemChoice(BaseModel):
 class ProblemItem(BaseModel):
     """단일 문제를 표현한다."""
 
-    problemId: int | None = None
-    problemSetId: int | None = None
-    problemNumber: int = Field(..., ge=1)
     problemType: Literal["MULTIPLE", "SHORT_ANSWER"]
     question: str = Field(..., min_length=1)
     answerCorrectNumber: int | None = Field(default=None, ge=1, le=4)
@@ -66,33 +63,29 @@ class ProblemItem(BaseModel):
         return self
 
 
-class ProblemSetPayload(BaseModel):
-    """API가 반환하는 최종 문제 세트 JSON 구조."""
+class MultipleChoiceProblemResponse(BaseModel):
+    """객관식 단일 문제 응답 구조."""
 
-    userId: int | None = None
-    certId: int | None = None
-    problemCount: int = Field(..., ge=1)
-    problems: list[ProblemItem] = Field(..., min_length=1)
+    question: str = Field(..., min_length=1)
+    choice1Content: str = Field(..., min_length=1)
+    choice2Content: str = Field(..., min_length=1)
+    choice3Content: str = Field(..., min_length=1)
+    choice4Content: str = Field(..., min_length=1)
+    answerNumber: int = Field(..., ge=1, le=4)
 
-    @model_validator(mode="after")
-    def validate_problem_set(self) -> ProblemSetPayload:
-        """문제 수와 문제 번호가 구조와 일치하는지 검증한다."""
 
-        if self.problemCount != len(self.problems):
-            raise ValueError("problemCount must match the number of problems.")
-        expected_numbers = list(range(1, len(self.problems) + 1))
-        actual_numbers = [problem.problemNumber for problem in self.problems]
-        if actual_numbers != expected_numbers:
-            raise ValueError("problemNumber must start at 1 and increase sequentially.")
-        return self
+class ShortAnswerProblemResponse(BaseModel):
+    """주관식 단일 문제 응답 구조."""
+
+    question: str = Field(..., min_length=1)
+    answer: str = Field(..., min_length=1)
 
 
 @dataclass(frozen=True)
-class GeneratedQuestionSet:
-    """생성된 최종 문제 세트, 검수 피드백, 참조 출처를 함께 담는다."""
+class GeneratedQuestion:
+    """생성된 단일 문제, 검수 피드백, 참조 출처를 함께 담는다."""
 
     certification_name: str
-    question_count: int
-    problem_set: ProblemSetPayload
+    problem: ProblemItem
     review_feedback: str
     sources: list[Source]
