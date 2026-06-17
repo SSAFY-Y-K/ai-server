@@ -5,26 +5,36 @@ from __future__ import annotations
 from typing import Literal
 
 
-SINGLE_PROBLEM_FORMAT_GUIDE = """반드시 아래 JSON 객체 형식으로만 답하라. 설명, 코드블록, 마크다운을 추가하지 마라.
+SINGLE_PROBLEM_FORMAT_GUIDE = """반드시 요청된 problemType에 맞는 JSON 객체 형식으로만 답하라. 설명, 코드블록, 마크다운을 추가하지 마라.
+
+problemType이 MULTIPLE이면 반드시 MultipleChoiceProblemCreateRequest 구조로 답한다:
 {
-  "problemType": "MULTIPLE" 또는 "SHORT_ANSWER",
-  "question": "문제 본문",
-  "answerCorrectNumber": <객관식 정답 번호 또는 null>,
-  "answerText": <주관식 정답 문자열 또는 null>,
-  "problemChoices": <객관식 보기 배열 또는 null>
+  "certId": null,
+  "title": "문제 제목",
+  "question": "문제 내용",
+  "choice1Content": "1번 선택지",
+  "choice2Content": "2번 선택지",
+  "choice3Content": "3번 선택지",
+  "choice4Content": "4번 선택지",
+  "answerNumber": <정답 선택지 번호>
 }
 
-problemChoices는 MULTIPLE일 때만 사용하며 정확히 4개의 보기를 포함한다.
-problemChoices 각 항목 형식:
+problemType이 SHORT_ANSWER이면 반드시 ShortAnswerProblemCreateRequest 구조로 답한다:
 {
-  "problemId": null,
-  "choiceNumber": 1,
-  "content": "선택지 내용"
+  "certId": null,
+  "title": "문제 제목",
+  "question": "문제",
+  "answer": "정답"
 }
 
 규칙:
-- problemType이 MULTIPLE이면 answerCorrectNumber는 반드시 1~4 숫자, answerText는 null, problemChoices는 4개 배열
-- problemType이 SHORT_ANSWER이면 answerCorrectNumber는 null, answerText는 비어 있지 않은 문자열, problemChoices는 null
+- certId는 현재 입력에 없으므로 반드시 null로 작성
+- title은 문제 내용을 짧게 요약한 한국어 제목으로 작성
+- MULTIPLE이면 choice1Content~choice4Content를 모두 비어 있지 않은 문자열로 작성하고 answerNumber는 반드시 1~4 숫자
+- SHORT_ANSWER이면 answer를 비어 있지 않은 짧고 명확한 문자열로 작성
+- 정답은 반드시 명확하게 1개만 존재해야 하며, 여러 답이 가능하거나 해석이 갈리는 문제는 만들지 말 것
+- 정답을 영문으로 작성해야 하면 question에 "영문으로 쓰시오"를 명시하고, 한글로 작성해야 하면 question에 "한글로 쓰시오"를 명시
+- 요청된 problemType 구조에 없는 필드는 절대 포함하지 말 것
 - 이번 호출에서는 문제를 정확히 1개만 생성
 - 모든 문제와 보기 텍스트는 한국어로 작성
 - JSON 문법이 완전히 유효해야 함"""
@@ -93,7 +103,9 @@ def build_generation_messages(
                 "- 자격증 범위와 무관한 다른 자격증 내용을 섞지 말 것\n"
                 "- RAG 참고자료가 있더라도 원문을 그대로 가져오지 말고 변형/신규 작성할 것\n"
                 f"- 요청된 문제 유형만 사용: {problem_type}\n"
-                "- 객관식은 4지선다만 허용\n"
+                "- 정답은 반드시 명확하게 1개만 존재하도록 작성\n"
+                "- 정답이 영문이면 문제에 영문으로 쓰라고 명시하고, 정답이 한글이면 문제에 한글로 쓰라고 명시\n"
+                "- 객관식은 choice1Content~choice4Content를 사용하는 4지선다만 허용\n"
                 "- 주관식은 짧고 명확한 정답 문자열을 사용\n"
                 f"{SINGLE_PROBLEM_FORMAT_GUIDE}\n\n"
                 f"RAG 검색 컨텍스트:\n{context}"
@@ -135,8 +147,10 @@ def build_review_messages(
                 "검수 기준:\n"
                 "- 실제 문제를 정확히 1개만 담은 JSON 객체인가\n"
                 f"- problemType이 요청된 유형({problem_type})과 정확히 일치하는가\n"
-                "- MULTIPLE 문제는 answerCorrectNumber, problemChoices 규칙을 지키는가\n"
-                "- SHORT_ANSWER 문제는 answerText, null 필드 규칙을 지키는가\n"
+                "- 정답이 명확하게 1개만 존재하는가\n"
+                "- 정답 언어가 영문이면 문제에 영문으로 쓰라고 명시했고, 한글이면 한글로 쓰라고 명시했는가\n"
+                "- MULTIPLE 문제는 MultipleChoiceProblemCreateRequest 구조와 answerNumber 규칙을 지키는가\n"
+                "- SHORT_ANSWER 문제는 ShortAnswerProblemCreateRequest 구조와 answer 규칙을 지키는가\n"
                 "- 요청한 자격증과 무관한 다른 자격증 내용이 섞였는가\n"
                 "- RAG 참고자료 원문을 그대로 복사한 문제가 있는가\n"
                 "- JSON으로 바로 파싱하기 어려운 표현이 있는가"
@@ -180,6 +194,8 @@ def build_revision_messages(
                 "최종 작성 조건:\n"
                 "- 이번 호출에서는 문제를 정확히 1개만 작성\n"
                 f"- problemType은 반드시 {problem_type}\n"
+                "- 정답은 반드시 명확하게 1개만 존재하도록 작성\n"
+                "- 정답이 영문이면 문제에 영문으로 쓰라고 명시하고, 정답이 한글이면 문제에 한글로 쓰라고 명시\n"
                 "- 다른 자격증명을 근거로 들거나 섞지 말 것\n"
                 "- RAG 참고자료가 있어도 원문을 그대로 복사하지 말 것\n"
                 "- 최종 답변은 JSON 객체 하나만 출력"

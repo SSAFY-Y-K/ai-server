@@ -31,33 +31,41 @@ class GenerateQuestionsRequest(BaseModel):
 def build_multiple_choice_response(problem: ProblemItem) -> MultipleChoiceProblemResponse:
     """내부 단일 문제 구조를 외부 객관식 단일 문제 응답 구조로 변환한다."""
 
-    if problem.problemType != "MULTIPLE" or not problem.problemChoices:
+    if problem.problemType != "MULTIPLE" or problem.answerNumber is None:
+        raise RuntimeError("Expected a MULTIPLE problem.")
+    if not all(
+        [
+            problem.choice1Content,
+            problem.choice2Content,
+            problem.choice3Content,
+            problem.choice4Content,
+        ]
+    ):
         raise RuntimeError("Expected a MULTIPLE problem with four choices.")
 
-    choices = {choice.choiceNumber: choice.content for choice in problem.problemChoices}
-    required_numbers = {1, 2, 3, 4}
-    if set(choices) != required_numbers:
-        raise RuntimeError("Expected MULTIPLE problem choices numbered 1 through 4.")
-
     return MultipleChoiceProblemResponse(
+        certId=problem.certId,
+        title=problem.title,
         question=problem.question,
-        choice1Content=choices[1],
-        choice2Content=choices[2],
-        choice3Content=choices[3],
-        choice4Content=choices[4],
-        answerNumber=problem.answerCorrectNumber,
+        choice1Content=problem.choice1Content,
+        choice2Content=problem.choice2Content,
+        choice3Content=problem.choice3Content,
+        choice4Content=problem.choice4Content,
+        answerNumber=problem.answerNumber,
     )
 
 
 def build_short_answer_response(problem: ProblemItem) -> ShortAnswerProblemResponse:
     """내부 단일 문제 구조를 외부 주관식 단일 문제 응답 구조로 변환한다."""
 
-    if problem.problemType != "SHORT_ANSWER" or not problem.answerText:
+    if problem.problemType != "SHORT_ANSWER" or not problem.answer:
         raise RuntimeError("Expected a SHORT_ANSWER problem with a non-empty answer.")
 
     return ShortAnswerProblemResponse(
+        certId=problem.certId,
+        title=problem.title,
         question=problem.question,
-        answer=problem.answerText,
+        answer=problem.answer,
     )
 
 

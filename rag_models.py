@@ -17,55 +17,61 @@ class Source:
     category: str
 
 
-class ProblemChoice(BaseModel):
-    """객관식 보기 한 개를 표현한다."""
-
-    problemId: int | None = None
-    choiceNumber: int = Field(..., ge=1, le=4)
-    content: str = Field(..., min_length=1)
-
-
 class ProblemItem(BaseModel):
     """단일 문제를 표현한다."""
 
     problemType: Literal["MULTIPLE", "SHORT_ANSWER"]
+    certId: int | None = None
+    title: str = Field(..., min_length=1)
     question: str = Field(..., min_length=1)
-    answerCorrectNumber: int | None = Field(default=None, ge=1, le=4)
-    answerText: str | None = None
-    problemChoices: list[ProblemChoice] | None = None
+    choice1Content: str | None = None
+    choice2Content: str | None = None
+    choice3Content: str | None = None
+    choice4Content: str | None = None
+    answerNumber: int | None = Field(default=None, ge=1, le=4)
+    answer: str | None = None
 
     @model_validator(mode="after")
     def validate_problem_type_fields(self) -> ProblemItem:
         """문제 유형에 따라 필수/금지 필드를 검증한다."""
 
         if self.problemType == "MULTIPLE":
-            if self.answerCorrectNumber is None:
-                raise ValueError("MULTIPLE problems require answerCorrectNumber.")
-            if self.answerText is not None:
-                raise ValueError("MULTIPLE problems must set answerText to null.")
-            if not self.problemChoices:
-                raise ValueError("MULTIPLE problems require problemChoices.")
-            if len(self.problemChoices) != 4:
-                raise ValueError("MULTIPLE problems must contain exactly 4 choices.")
-            choice_numbers = [choice.choiceNumber for choice in self.problemChoices]
-            if sorted(choice_numbers) != [1, 2, 3, 4]:
-                raise ValueError("MULTIPLE problem choices must use choiceNumber 1 through 4.")
-            if self.answerCorrectNumber not in choice_numbers:
-                raise ValueError("answerCorrectNumber must match one of the choice numbers.")
+            if self.answerNumber is None:
+                raise ValueError("MULTIPLE problems require answerNumber.")
+            choices = [
+                self.choice1Content,
+                self.choice2Content,
+                self.choice3Content,
+                self.choice4Content,
+            ]
+            if any(not choice or not choice.strip() for choice in choices):
+                raise ValueError("MULTIPLE problems require choice1Content through choice4Content.")
+            if self.answer is not None:
+                raise ValueError("MULTIPLE problems must not include answer.")
             return self
 
-        if self.answerCorrectNumber is not None:
-            raise ValueError("SHORT_ANSWER problems must set answerCorrectNumber to null.")
-        if not self.answerText or not self.answerText.strip():
-            raise ValueError("SHORT_ANSWER problems require answerText.")
-        if self.problemChoices is not None:
-            raise ValueError("SHORT_ANSWER problems must set problemChoices to null.")
+        if not self.answer or not self.answer.strip():
+            raise ValueError("SHORT_ANSWER problems require answer.")
+        if self.answerNumber is not None:
+            raise ValueError("SHORT_ANSWER problems must not include answerNumber.")
+        if any(
+            choice is not None
+            for choice in [
+                self.choice1Content,
+                self.choice2Content,
+                self.choice3Content,
+                self.choice4Content,
+            ]
+        ):
+            raise ValueError("SHORT_ANSWER problems must not include choices.")
         return self
 
 
 class MultipleChoiceProblemResponse(BaseModel):
     """객관식 단일 문제 응답 구조."""
 
+    certId: int | None = None
+    title: str = Field(..., min_length=1)
     question: str = Field(..., min_length=1)
     choice1Content: str = Field(..., min_length=1)
     choice2Content: str = Field(..., min_length=1)
@@ -77,6 +83,8 @@ class MultipleChoiceProblemResponse(BaseModel):
 class ShortAnswerProblemResponse(BaseModel):
     """주관식 단일 문제 응답 구조."""
 
+    certId: int | None = None
+    title: str = Field(..., min_length=1)
     question: str = Field(..., min_length=1)
     answer: str = Field(..., min_length=1)
 

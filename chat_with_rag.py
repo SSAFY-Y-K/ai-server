@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 from llm_client import request_chat_completion
@@ -16,7 +17,7 @@ from rag_models import GeneratedQuestion, ProblemItem
 from rag_retriever import collect_sources, format_context, retrieve_certification_docs
 
 
-def parse_problem(raw_content: str) -> ProblemItem:
+def parse_problem(raw_content: str, problem_type: Literal["MULTIPLE", "SHORT_ANSWER"]) -> ProblemItem:
     """LLM 응답에서 JSON 객체를 추출해 단일 문제로 검증한다."""
 
     content = raw_content.strip()
@@ -35,7 +36,16 @@ def parse_problem(raw_content: str) -> ProblemItem:
 
     json_text = content[start : end + 1]
     try:
-        return ProblemItem.model_validate_json(json_text)
+        payload = json.loads(json_text)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"LLM returned invalid JSON: {error}") from error
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("LLM returned a JSON value that is not an object.")
+    payload.setdefault("problemType", problem_type)
+
+    try:
+        return ProblemItem.model_validate(payload)
     except ValidationError as error:
         raise RuntimeError(f"LLM returned an invalid problem payload: {error}") from error
 
@@ -89,7 +99,7 @@ async def generate_question_for_certification(
         ),
         temperature=0.2,
     )
-    problem = parse_problem(final_content)
+    problem = parse_problem(final_content, problem_type)
     if problem.problemType != problem_type:
         raise RuntimeError("LLM returned a problemType that does not match the requested type.")
 
