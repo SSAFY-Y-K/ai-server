@@ -82,7 +82,18 @@ POST /questions/generate
 ```json
 {
 	"certification": "정보처리기사",
+	"referenceText": null,
 	"problemType": "MULTIPLE_CHOICE"
+}
+```
+
+`referenceText`는 선택 입력입니다. `null`이면 무시하고, 문자열이 있으면 해당 내용을 우선 참고해 문제를 생성합니다.
+
+```json
+{
+	"certification": "정보처리기사",
+	"referenceText": "운영체제의 프로세스 스케줄링과 교착 상태 개념을 참고해 문제를 생성해 주세요.",
+	"problemType": "SHORT_ANSWER"
 }
 ```
 

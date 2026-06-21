@@ -72,12 +72,28 @@ def problem_type_policy(problem_type: Literal["MULTIPLE", "SHORT_ANSWER"]) -> st
     )
 
 
+def reference_text_section(reference_text: str | None) -> str:
+    """사용자 제공 참고 텍스트가 있을 때만 프롬프트 섹션을 만든다."""
+
+    if not reference_text:
+        return ""
+    return (
+        "\n\n사용자 제공 참고 텍스트:\n"
+        f"{reference_text}\n\n"
+        "사용자 제공 참고 텍스트 사용 규칙:\n"
+        "- 위 참고 텍스트의 개념, 범위, 용어를 우선 참고해 문제를 생성할 것\n"
+        "- 자격증 범위와 충돌하는 내용은 억지로 사용하지 말 것\n"
+        "- 참고 텍스트를 그대로 복사하지 말고 새 문제로 변형할 것"
+    )
+
+
 def build_generation_messages(
     certification_name: str,
     context: str,
     problem_type: Literal["MULTIPLE", "SHORT_ANSWER"],
     *,
     has_context: bool,
+    reference_text: str | None = None,
 ) -> list[dict[str, str]]:
     """문제 1개 초안 생성을 위한 system/user 메시지를 구성한다."""
 
@@ -102,6 +118,7 @@ def build_generation_messages(
                 "- 이번 호출에서는 문제를 정확히 1개만 생성\n"
                 "- 자격증 범위와 무관한 다른 자격증 내용을 섞지 말 것\n"
                 "- RAG 참고자료가 있더라도 원문을 그대로 가져오지 말고 변형/신규 작성할 것\n"
+                "- 사용자 제공 참고 텍스트가 있으면 해당 내용을 우선 참고해 문제를 만들 것\n"
                 f"- 요청된 문제 유형만 사용: {problem_type}\n"
                 "- 정답은 반드시 명확하게 1개만 존재하도록 작성\n"
                 "- 정답이 영문이면 문제에 영문으로 쓰라고 명시하고, 정답이 한글이면 문제에 한글로 쓰라고 명시\n"
@@ -109,6 +126,7 @@ def build_generation_messages(
                 "- 주관식은 짧고 명확한 정답 문자열을 사용\n"
                 f"{SINGLE_PROBLEM_FORMAT_GUIDE}\n\n"
                 f"RAG 검색 컨텍스트:\n{context}"
+                f"{reference_text_section(reference_text)}"
             ),
         },
     ]
@@ -121,6 +139,7 @@ def build_review_messages(
     problem_type: Literal["MULTIPLE", "SHORT_ANSWER"],
     *,
     has_context: bool,
+    reference_text: str | None = None,
 ) -> list[dict[str, str]]:
     """생성된 문제 1개 초안이 요구사항과 RAG 사용 방침을 잘 따르는지 검수한다."""
 
@@ -142,7 +161,8 @@ def build_review_messages(
                 "이번 호출의 요구 문제 수: 1개\n"
                 f"RAG 참고자료 존재 여부: {'있음' if has_context else '없음'}\n\n"
                 f"{SINGLE_PROBLEM_FORMAT_GUIDE}\n\n"
-                f"RAG 검색 컨텍스트:\n{context}\n\n"
+                f"RAG 검색 컨텍스트:\n{context}"
+                f"{reference_text_section(reference_text)}\n\n"
                 f"문제 초안 JSON:\n{draft}\n\n"
                 "검수 기준:\n"
                 "- 실제 문제를 정확히 1개만 담은 JSON 객체인가\n"
@@ -152,6 +172,7 @@ def build_review_messages(
                 "- MULTIPLE 문제는 MultipleChoiceProblemCreateRequest 구조와 answerNumber 규칙을 지키는가\n"
                 "- SHORT_ANSWER 문제는 ShortAnswerProblemCreateRequest 구조와 answer 규칙을 지키는가\n"
                 "- 요청한 자격증과 무관한 다른 자격증 내용이 섞였는가\n"
+                "- 사용자 제공 참고 텍스트가 있으면 그 내용을 적절히 참고했는가\n"
                 "- RAG 참고자료 원문을 그대로 복사한 문제가 있는가\n"
                 "- JSON으로 바로 파싱하기 어려운 표현이 있는가"
             ),
@@ -167,6 +188,7 @@ def build_revision_messages(
     problem_type: Literal["MULTIPLE", "SHORT_ANSWER"],
     *,
     has_context: bool,
+    reference_text: str | None = None,
 ) -> list[dict[str, str]]:
     """검수 피드백을 반영해 문제 1개 완성본 JSON을 다시 작성하는 메시지를 만든다."""
 
@@ -188,7 +210,8 @@ def build_revision_messages(
                 "이번 호출의 최종 문제 수: 1개\n"
                 f"RAG 참고자료 존재 여부: {'있음' if has_context else '없음'}\n\n"
                 f"{SINGLE_PROBLEM_FORMAT_GUIDE}\n\n"
-                f"RAG 검색 컨텍스트:\n{context}\n\n"
+                f"RAG 검색 컨텍스트:\n{context}"
+                f"{reference_text_section(reference_text)}\n\n"
                 f"문제 초안 JSON:\n{draft}\n\n"
                 f"검수 피드백:\n{review_feedback}\n\n"
                 "최종 작성 조건:\n"
@@ -196,6 +219,7 @@ def build_revision_messages(
                 f"- problemType은 반드시 {problem_type}\n"
                 "- 정답은 반드시 명확하게 1개만 존재하도록 작성\n"
                 "- 정답이 영문이면 문제에 영문으로 쓰라고 명시하고, 정답이 한글이면 문제에 한글로 쓰라고 명시\n"
+                "- 사용자 제공 참고 텍스트가 있으면 해당 내용을 반영할 것\n"
                 "- 다른 자격증명을 근거로 들거나 섞지 말 것\n"
                 "- RAG 참고자료가 있어도 원문을 그대로 복사하지 말 것\n"
                 "- 최종 답변은 JSON 객체 하나만 출력"

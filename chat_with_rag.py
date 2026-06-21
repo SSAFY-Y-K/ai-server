@@ -53,12 +53,14 @@ def parse_problem(raw_content: str, problem_type: Literal["MULTIPLE", "SHORT_ANS
 async def generate_question_for_certification(
     certification_name: str,
     *,
+    reference_text: str | None = None,
     top_k: int = DEFAULT_TOP_K,
     problem_type: Literal["MULTIPLE", "SHORT_ANSWER"],
 ) -> GeneratedQuestion:
     """자격증 이름을 입력받아 RAG 검색 후 단일 문제를 생성한다."""
 
     certification_name = certification_name.strip()
+    reference_text = reference_text.strip() if reference_text else None
     if not certification_name:
         raise ValueError("certification_name is required.")
     if top_k <= 0:
@@ -75,6 +77,7 @@ async def generate_question_for_certification(
             context,
             problem_type,
             has_context=has_context,
+            reference_text=reference_text,
         ),
         temperature=0.4,
     )
@@ -85,6 +88,7 @@ async def generate_question_for_certification(
             draft,
             problem_type,
             has_context=has_context,
+            reference_text=reference_text,
         ),
         temperature=0.1,
     )
@@ -96,6 +100,7 @@ async def generate_question_for_certification(
             review_feedback,
             problem_type,
             has_context=has_context,
+            reference_text=reference_text,
         ),
         temperature=0.2,
     )

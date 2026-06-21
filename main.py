@@ -28,6 +28,10 @@ class GenerateQuestionsRequest(BaseModel):
     """문제 생성 API가 받는 요청 본문 구조."""
 
     certification: str = Field(..., min_length=1, examples=["정보처리기사"])
+    referenceText: str | None = Field(
+        default=None,
+        examples=["운영체제의 프로세스 스케줄링과 교착 상태 개념을 참고해 문제를 생성해 주세요."],
+    )
     problemType: Literal["MULTIPLE_CHOICE", "SHORT_ANSWER", "CODING"] = Field(
         ...,
         examples=["MULTIPLE_CHOICE", "SHORT_ANSWER", "CODING"],
@@ -378,6 +382,7 @@ async def generate_questions(
 
         result = await generate_question_for_certification(
             request.certification,
+            reference_text=request.referenceText,
             problem_type=(
                 "MULTIPLE" if request.problemType == "MULTIPLE_CHOICE" else "SHORT_ANSWER"
             ),
