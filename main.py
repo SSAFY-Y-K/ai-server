@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import tempfile
 from dataclasses import dataclass, field
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from chat_with_rag import generate_question_for_certification
@@ -22,6 +23,21 @@ from rag_models import (
 
 
 app = FastAPI(title="Certification RAG Question Generator")
+logger = logging.getLogger(__name__)
+
+
+@app.middleware("http")
+async def log_question_generation_raw_body(request: Request, call_next):
+    """문제 생성 요청의 원본 body를 validation 전에 로그로 남긴다."""
+
+    if request.method == "POST" and request.url.path == "/questions/generate":
+        body = await request.body()
+        try:
+            body_text = body.decode("utf-8")
+        except UnicodeDecodeError:
+            body_text = repr(body)
+        logger.info("Incoming /questions/generate raw request body: %s", body_text or "<empty>")
+    return await call_next(request)
 
 
 class GenerateQuestionsRequest(BaseModel):
@@ -372,6 +388,8 @@ async def generate_questions(
     request: GenerateQuestionsRequest,
 ) -> MultipleChoiceProblemResponse | ShortAnswerProblemResponse:
     """자격증 이름을 받아 RAG 기반 문제 세트를 생성한다."""
+
+    logger.info("Parsed /questions/generate request body: %s", request.model_dump_json())
 
     try:
         if request.problemType == "CODING":

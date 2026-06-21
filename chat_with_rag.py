@@ -17,7 +17,7 @@ from rag_models import GeneratedQuestion, ProblemItem
 from rag_retriever import collect_sources, format_context, retrieve_certification_docs
 
 
-def parse_problem(raw_content: str, problem_type: Literal["MULTIPLE", "SHORT_ANSWER"]) -> ProblemItem:
+def parse_problem(raw_content: str, problem_type: Literal["MULTIPLE_CHOICE", "SHORT_ANSWER"]) -> ProblemItem:
     """LLM 응답에서 JSON 객체를 추출해 단일 문제로 검증한다."""
 
     content = raw_content.strip()
