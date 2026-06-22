@@ -1,4 +1,4 @@
-"""FastAPI 엔드포인트를 정의해 자격증별 RAG 문제 생성 및 알고리즘 문제 생성을 제공한다."""
+"""FastAPI app for certification question generation and algorithm problem generation."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import logging
 import os
 import tempfile
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 @app.middleware("http")
 async def log_question_generation_raw_body(request: Request, call_next):
-    """문제 생성 요청의 원본 body를 validation 전에 로그로 남긴다."""
+    """Log raw request bodies for the certification question endpoint."""
 
     if request.method == "POST" and request.url.path == "/questions/generate":
         body = await request.body()
@@ -41,12 +41,12 @@ async def log_question_generation_raw_body(request: Request, call_next):
 
 
 class GenerateQuestionsRequest(BaseModel):
-    """문제 생성 API가 받는 요청 본문 구조."""
+    """Request body for certification question generation."""
 
-    certification: str = Field(..., min_length=1, examples=["정보처리기사"])
+    certification: str = Field(..., min_length=1, examples=["example-certification"])
     referenceText: str | None = Field(
         default=None,
-        examples=["운영체제의 프로세스 스케줄링과 교착 상태 개념을 참고해 문제를 생성해 주세요."],
+        examples=["Generate a question based on this reference text."],
     )
     problemType: Literal["MULTIPLE_CHOICE", "SHORT_ANSWER", "CODING"] = Field(
         ...,
@@ -55,7 +55,7 @@ class GenerateQuestionsRequest(BaseModel):
 
 
 def build_multiple_choice_response(problem: ProblemItem) -> MultipleChoiceProblemResponse:
-    """내부 단일 문제 구조를 외부 객관식 단일 문제 응답 구조로 변환한다."""
+    """Convert a generic problem item into the multiple-choice response shape."""
 
     if problem.problemType != "MULTIPLE" or problem.answerNumber is None:
         raise RuntimeError("Expected a MULTIPLE problem.")
@@ -82,7 +82,7 @@ def build_multiple_choice_response(problem: ProblemItem) -> MultipleChoiceProble
 
 
 def build_short_answer_response(problem: ProblemItem) -> ShortAnswerProblemResponse:
-    """내부 단일 문제 구조를 외부 주관식 단일 문제 응답 구조로 변환한다."""
+    """Convert a generic problem item into the short-answer response shape."""
 
     if problem.problemType != "SHORT_ANSWER" or not problem.answer:
         raise RuntimeError("Expected a SHORT_ANSWER problem with a non-empty answer.")
@@ -94,8 +94,6 @@ def build_short_answer_response(problem: ProblemItem) -> ShortAnswerProblemRespo
         answer=problem.answer,
     )
 
-
-# ── 알고리즘 문제 생성 ────────────────────────────────────────────────────────
 
 @dataclass
 class AlgorithmTestCase:
@@ -118,32 +116,273 @@ class AlgorithmProblem:
     test_cases: list[AlgorithmTestCase] = field(default_factory=list)
 
 
-DIFFICULTY_LABEL = {"EASY": "초급", "MEDIUM": "중급", "HARD": "상급"}
+@dataclass
+class AlgorithmGenerationPlan:
+    difficulty: str
+    category: str
+    intended_algorithm: str
+    intended_time_complexity: str
+    intended_memory_complexity: str
+    bruteforce_time_complexity: str
+    max_constraints: str
+    chosen_time_limit_ms: int
+    chosen_memory_limit_mb: int
+    why_bruteforce_fails: str
 
-# 3단계: 참조 솔루션 생성
-SOLUTION_PROMPT = """너는 알고리즘 문제 풀이 전문가다.
-주어진 문제 명세에 대한 정확한 Python 솔루션을 작성해라.
-코드블록, 마크다운, 설명 없이 순수 Python 코드만 출력한다.
-표준 입력(input())으로 읽고 print()로 결과를 출력한다."""
+
+RESOURCE_BANDS = {
+    "EASY": {
+        "time_min": 800,
+        "time_max": 1500,
+        "time_default": 1000,
+        "memory_min": 128,
+        "memory_max": 256,
+        "memory_default": 256,
+    },
+    "MEDIUM": {
+        "time_min": 1000,
+        "time_max": 2500,
+        "time_default": 2000,
+        "memory_min": 128,
+        "memory_max": 512,
+        "memory_default": 256,
+    },
+    "HARD": {
+        "time_min": 1500,
+        "time_max": 4000,
+        "time_default": 3000,
+        "memory_min": 256,
+        "memory_max": 1024,
+        "memory_default": 512,
+    },
+}
+
+
+ALGORITHM_PLAN_PROMPT = """
+You create hidden planning metadata for one algorithm coding problem.
+Input fields:
+- difficulty: EASY | MEDIUM | HARD
+- category: a fixed algorithm category string
+
+Hard rules:
+1. category is fixed. Never change it.
+2. difficulty changes only the difficulty inside the same category.
+3. Choose time and memory limits dynamically for the planned problem.
+4. The chosen limits must allow the intended optimal solution.
+5. If brute force is not the intended solution, choose limits and constraints so brute force does not pass.
+6. Be conservative. If uncertain, choose safer constraints instead of extreme ones.
+7. Return one JSON object only.
+
+Difficulty meaning:
+- EASY: the main idea is relatively direct, with lighter implementation burden and simpler edge cases.
+- MEDIUM: the standard solution must be identified and implemented correctly.
+- HARD: the idea, optimization, or edge-case handling is meaningfully harder.
+
+Resource bands:
+- EASY: time 800..1500 ms, memory 128..256 MB
+- MEDIUM: time 1000..2500 ms, memory 128..512 MB
+- HARD: time 1500..4000 ms, memory 256..1024 MB
+
+Output schema:
+{
+  "category": "copy the input category exactly",
+  "difficulty": "copy the input difficulty exactly",
+  "intended_algorithm": "short phrase",
+  "intended_time_complexity": "e.g. O(N log N)",
+  "intended_memory_complexity": "e.g. O(N)",
+  "bruteforce_time_complexity": "e.g. O(N^2)",
+  "max_constraints": "concise constraint summary such as N up to 200000",
+  "chosen_time_limit_ms": 2000,
+  "chosen_memory_limit_mb": 256,
+  "why_bruteforce_fails": "short explanation"
+}
+"""
+
+
+PROBLEM_SPEC_PROMPT = """
+You are an algorithm coding problem writer.
+You will receive a locked planning JSON. Follow it exactly.
+
+Hard rules:
+1. Keep category exactly the same as the plan.
+2. Keep time_limit exactly equal to chosen_time_limit_ms from the plan.
+3. Keep memory_limit exactly equal to chosen_memory_limit_mb from the plan.
+4. The core solving idea must match intended_algorithm and intended_time_complexity from the plan.
+5. Do not mention the solution algorithm name directly in the problem statement.
+6. All natural-language fields must be written in Korean.
+7. Do not include sample input or sample output.
+8. Return one JSON object only. No markdown, no code block, no extra text.
+
+Output schema:
+{
+  "title": "problem title",
+  "description": "problem statement",
+  "input_description": "input format",
+  "output_description": "output format",
+  "constraint_text": "constraints only",
+  "time_limit": 1000,
+  "memory_limit": 256,
+  "category": "category string"
+}
+"""
+
+
+TESTCASE_PROMPT = """
+You generate exact test cases for an algorithm problem.
+You will receive final problem spec JSON.
+
+Hard rules:
+1. Return one JSON object only with the single key "test_cases".
+2. Create exactly 4 test cases.
+3. Each test case must have this shape:
+   {
+     "input_data": "exact input string",
+     "expected_output": "exact output string",
+     "design_note": "short note"
+   }
+4. input_data and expected_output must not contain extra leading or trailing blank lines.
+5. All four inputs must be different.
+6. Include at least one boundary case.
+7. Include at least one case that would reject a naive or inefficient approach.
+8. Keep the cases valid for the stated constraints.
+9. Return JSON only. No markdown, no code block, no extra text.
+"""
+
+
+SOLUTION_PROMPT = """
+You write a correct Python reference solution for the given algorithm problem.
+Return plain Python code only. No markdown, no code block, no extra explanation.
+Read from standard input and write to standard output.
+"""
+
+
+def _parse_json_object(raw: str, label: str) -> dict[str, Any]:
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"Failed to generate {label}: invalid JSON: {error}") from error
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Failed to generate {label}: expected a JSON object.")
+    return data
+
+
+def _get_required_text(data: dict[str, Any], field_name: str, label: str) -> str:
+    value = str(data.get(field_name, "")).strip()
+    if not value:
+        raise RuntimeError(f"Failed to generate {label}: missing {field_name}.")
+    return value
+
+
+def _clamp_int(value: Any, minimum: int, maximum: int, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, parsed))
+
+
+def _strip_code_block(text: str) -> str:
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.split("\n")
+    inner = lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+    return "\n".join(inner).strip()
+
+
+def _normalize_generation_plan(
+    difficulty: str,
+    category: str,
+    plan_data: dict[str, Any],
+) -> AlgorithmGenerationPlan:
+    bands = RESOURCE_BANDS.get(difficulty, RESOURCE_BANDS["MEDIUM"])
+    return AlgorithmGenerationPlan(
+        difficulty=difficulty,
+        category=category,
+        intended_algorithm=_get_required_text(plan_data, "intended_algorithm", "algorithm plan"),
+        intended_time_complexity=_get_required_text(plan_data, "intended_time_complexity", "algorithm plan"),
+        intended_memory_complexity=_get_required_text(plan_data, "intended_memory_complexity", "algorithm plan"),
+        bruteforce_time_complexity=_get_required_text(plan_data, "bruteforce_time_complexity", "algorithm plan"),
+        max_constraints=_get_required_text(plan_data, "max_constraints", "algorithm plan"),
+        chosen_time_limit_ms=_clamp_int(
+            plan_data.get("chosen_time_limit_ms"),
+            bands["time_min"],
+            bands["time_max"],
+            bands["time_default"],
+        ),
+        chosen_memory_limit_mb=_clamp_int(
+            plan_data.get("chosen_memory_limit_mb"),
+            bands["memory_min"],
+            bands["memory_max"],
+            bands["memory_default"],
+        ),
+        why_bruteforce_fails=_get_required_text(plan_data, "why_bruteforce_fails", "algorithm plan"),
+    )
+
+
+def _normalize_problem_spec(
+    spec_data: dict[str, Any],
+    plan: AlgorithmGenerationPlan,
+) -> dict[str, Any]:
+    return {
+        "title": _get_required_text(spec_data, "title", "problem spec"),
+        "description": _get_required_text(spec_data, "description", "problem spec"),
+        "input_description": _get_required_text(spec_data, "input_description", "problem spec"),
+        "output_description": _get_required_text(spec_data, "output_description", "problem spec"),
+        "constraint_text": _get_required_text(spec_data, "constraint_text", "problem spec"),
+        "time_limit": plan.chosen_time_limit_ms,
+        "memory_limit": plan.chosen_memory_limit_mb,
+        "category": plan.category,
+    }
+
+
+def _extract_test_case_list(testcase_data: dict[str, Any]) -> list[dict[str, Any]]:
+    test_cases = testcase_data.get("test_cases")
+    if not isinstance(test_cases, list):
+        test_cases = next((value for value in testcase_data.values() if isinstance(value, list)), None)
+    if not isinstance(test_cases, list):
+        raise RuntimeError("Failed to generate test cases: missing test_cases list.")
+    if len(test_cases) < 4:
+        raise RuntimeError("Failed to generate test cases: expected at least 4 cases.")
+
+    normalized_cases: list[dict[str, Any]] = []
+    for case in test_cases[:4]:
+        if not isinstance(case, dict):
+            raise RuntimeError("Failed to generate test cases: each case must be a JSON object.")
+        normalized_cases.append(
+            {
+                "input_data": str(case.get("input_data", "")).strip(),
+                "expected_output": str(case.get("expected_output", "")).strip(),
+            }
+        )
+
+    unique_inputs = {case["input_data"] for case in normalized_cases}
+    if len(unique_inputs) != len(normalized_cases):
+        raise RuntimeError("Failed to generate test cases: duplicate inputs were returned.")
+
+    return normalized_cases
 
 
 async def _run_solution(code: str, input_data: str, timeout: float = 5.0) -> str | None:
-    """참조 솔루션을 실제로 실행해 출력값을 반환한다. 실패 시 None."""
+    """Run a Python reference solution and return its stdout."""
+
     tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
-            f.write(code)
-            tmp_path = f.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as file:
+            file.write(code)
+            tmp_path = file.name
 
         proc = await asyncio.create_subprocess_exec(
-            "python3", tmp_path,
+            "python3",
+            tmp_path,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         try:
             stdout, _ = await asyncio.wait_for(
-                proc.communicate(input_data.encode()), timeout=timeout
+                proc.communicate(input_data.encode()),
+                timeout=timeout,
             )
             if proc.returncode == 0:
                 return stdout.decode().strip()
@@ -157,166 +396,107 @@ async def _run_solution(code: str, input_data: str, timeout: float = 5.0) -> str
             os.unlink(tmp_path)
     return None
 
-# 1단계: 문제 설명만 생성 (테스트케이스 제외)
-PROBLEM_SPEC_PROMPT = """너는 알고리즘 코딩 문제 출제 전문가다.
-주어진 난이도와 카테고리에 맞는 알고리즘 문제 1개의 명세를 아래 JSON 형식으로 생성해라.
-테스트케이스는 포함하지 않는다. 코드블록, 마크다운, 설명 없이 유효한 JSON 객체 하나만 출력한다.
-
-{{
-  "title": "문제 제목 (한국어, 간결하게)",
-  "description": "문제 설명 (한국어, 상세하게. 입출력 예시 없이 순수 설명만)",
-  "input_description": "입력 형식 설명 (줄 수, 각 줄의 의미, 공백 구분 등 정확히)",
-  "output_description": "출력 형식 설명 (정확히 어떤 값을 어떤 순서로 출력하는지)",
-  "constraint_text": "제약 조건 (예: 1 <= N <= 10000)",
-  "time_limit": 1000,
-  "memory_limit": 256,
-  "category": "{category}"
-}}
-
-규칙:
-- time_limit 단위는 밀리초(ms), memory_limit 단위는 MB
-- 모든 텍스트는 한국어로 작성
-- 입력/출력 형식은 구체적이고 모호하지 않게 작성"""
-
-# 2단계: 문제 명세를 주고 테스트케이스를 단계별로 검증하면서 생성
-TESTCASE_PROMPT = """너는 알고리즘 문제의 테스트케이스를 검증하며 생성하는 전문가다.
-아래 문제 명세를 보고 테스트케이스 4개(샘플 2 + 히든 2)를 생성해라.
-
-문제 명세:
-{spec}
-
-각 테스트케이스에 대해 반드시 다음 순서를 따라라:
-1. 입력값을 결정한다
-2. 해당 입력에 대해 알고리즘을 손으로 단계별로 실행한다 (머릿속으로만 하지 말고 trace)
-3. 최종 출력값을 확정한다
-
-그 후 아래 JSON 형식으로만 출력한다. 코드블록, 마크다운, 설명 없이 유효한 JSON 배열만:
-
-[
-  {{"input_data": "입력1", "expected_output": "출력1", "trace": "단계별 실행 과정"}},
-  {{"input_data": "입력2", "expected_output": "출력2", "trace": "단계별 실행 과정"}},
-  {{"input_data": "입력3", "expected_output": "출력3", "trace": "단계별 실행 과정"}},
-  {{"input_data": "입력4", "expected_output": "출력4", "trace": "단계별 실행 과정"}}
-]
-
-규칙:
-- 반드시 4개의 테스트케이스를 생성
-- input_data와 expected_output의 끝에 불필요한 공백/개행 없이 정확하게 작성
-- 각 케이스는 서로 다른 입력값 사용
-- trace 필드는 출력값이 맞는지 확인용이므로 반드시 작성"""
-
 
 async def generate_algorithm_problem(difficulty: str, category: str) -> AlgorithmProblem:
-    """2단계로 LLM을 호출해 문제 명세 생성 → 테스트케이스 검증 생성."""
+    """Generate one algorithm problem through plan, spec, and testcase steps."""
 
-    difficulty_label = DIFFICULTY_LABEL.get(difficulty, "중급")
-
-    # 1단계: 문제 명세 생성
-    spec_messages = [
-        {"role": "system", "content": PROBLEM_SPEC_PROMPT.format(category=category)},
+    plan_messages = [
+        {"role": "system", "content": ALGORITHM_PLAN_PROMPT},
         {
             "role": "user",
             "content": (
-                f"난이도: {difficulty_label} ({difficulty})\n"
-                f"카테고리: {category}\n\n"
-                "위 조건에 맞는 알고리즘 문제 명세를 JSON으로 생성해라."
+                f"difficulty={difficulty}\n"
+                f"category={category}\n\n"
+                "Keep category fixed. Choose dynamic limits and constraints that fit the same category."
             ),
         },
     ]
+    plan_raw = await request_json_completion(plan_messages, temperature=0.2)
+    plan_data = _parse_json_object(plan_raw, "algorithm plan")
+    plan = _normalize_generation_plan(difficulty, category, plan_data)
 
-    spec_raw = await request_json_completion(spec_messages, temperature=0.7)
-
-    try:
-        spec_data = json.loads(spec_raw)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"문제 명세 생성 실패 - 유효하지 않은 JSON: {e}") from e
-
-    # 2단계: 테스트케이스 입력/출력 생성 (AI 산술 오류 가능 — 3단계에서 검증)
-    spec_text = json.dumps(spec_data, ensure_ascii=False, indent=2)
-    tc_messages = [
-        {
-            "role": "system",
-            "content": TESTCASE_PROMPT.format(spec=spec_text),
-        },
+    spec_messages = [
+        {"role": "system", "content": PROBLEM_SPEC_PROMPT},
         {
             "role": "user",
-            "content": "위 문제 명세에 맞는 테스트케이스 4개를 단계별 trace와 함께 JSON 배열로 생성해라.",
+            "content": (
+                "Locked planning JSON:\n"
+                f"{json.dumps(plan.__dict__, ensure_ascii=False, indent=2)}\n\n"
+                "Generate the final problem spec JSON. "
+                "Keep category, time_limit, and memory_limit exactly aligned with the plan."
+            ),
         },
     ]
+    spec_raw = await request_json_completion(spec_messages, temperature=0.3)
+    spec_data = _parse_json_object(spec_raw, "problem spec")
+    normalized_spec = _normalize_problem_spec(spec_data, plan)
+    spec_text = json.dumps(normalized_spec, ensure_ascii=False, indent=2)
 
-    tc_raw = await request_chat_completion(tc_messages, temperature=0.2)
+    tc_messages = [
+        {"role": "system", "content": TESTCASE_PROMPT},
+        {
+            "role": "user",
+            "content": (
+                "Problem spec JSON:\n"
+                f"{spec_text}\n\n"
+                "Create exactly 4 test cases. Include one boundary case and one anti-naive case."
+            ),
+        },
+    ]
+    tc_raw = await request_json_completion(tc_messages, temperature=0.1)
+    tc_data = _parse_json_object(tc_raw, "test cases")
+    tc_list = _extract_test_case_list(tc_data)
 
-    tc_stripped = tc_raw.strip()
-    if tc_stripped.startswith("```"):
-        lines = tc_stripped.split("\n")
-        inner = lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
-        tc_stripped = "\n".join(inner).strip()
-
-    try:
-        tc_data = json.loads(tc_stripped)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"테스트케이스 생성 실패 - 유효하지 않은 JSON: {e}\n원본: {tc_raw[:200]}") from e
-
-    if isinstance(tc_data, list):
-        tc_list = tc_data
-    elif isinstance(tc_data, dict):
-        tc_list = next((v for v in tc_data.values() if isinstance(v, list)), [])
-    else:
-        tc_list = []
-
-    # 3단계: 참조 솔루션 생성 후 실제 실행해 expected_output 검증·수정
     solution_messages = [
         {"role": "system", "content": SOLUTION_PROMPT},
-        {"role": "user", "content": f"다음 문제의 Python 솔루션을 작성해라:\n\n{spec_text}"},
+        {"role": "user", "content": f"Write a correct Python solution for this problem:\n\n{spec_text}"},
     ]
     solution_raw = await request_chat_completion(solution_messages, temperature=0.0)
+    solution_code = _strip_code_block(solution_raw)
 
-    solution_code = solution_raw.strip()
-    if solution_code.startswith("```"):
-        lines = solution_code.split("\n")
-        inner = lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
-        solution_code = "\n".join(inner).strip()
-
-    for tc in tc_list:
-        actual = await _run_solution(solution_code, tc.get("input_data", ""))
+    for test_case in tc_list:
+        actual = await _run_solution(solution_code, test_case.get("input_data", ""))
         if actual is not None:
-            tc["expected_output"] = actual
+            test_case["expected_output"] = actual
 
-    # is_sample을 모델 응답에 맡기지 않고 순서로 직접 할당 (앞 2개 샘플, 나머지 히든)
     test_cases = [
         AlgorithmTestCase(
-            input_data=tc.get("input_data", "").strip(),
-            expected_output=tc.get("expected_output", "").strip(),
-            is_sample=(i < 2),
-            case_order=i + 1,
+            input_data=test_case.get("input_data", "").strip(),
+            expected_output=test_case.get("expected_output", "").strip(),
+            is_sample=(index < 2),
+            case_order=index + 1,
         )
-        for i, tc in enumerate(tc_list)
+        for index, test_case in enumerate(tc_list)
     ]
 
     return AlgorithmProblem(
-        title=spec_data.get("title", ""),
-        description=spec_data.get("description", ""),
-        input_description=spec_data.get("input_description", ""),
-        output_description=spec_data.get("output_description", ""),
-        constraint_text=spec_data.get("constraint_text", ""),
-        time_limit=int(spec_data.get("time_limit", 1000)),
-        memory_limit=int(spec_data.get("memory_limit", 256)),
-        category=spec_data.get("category", category),
+        title=normalized_spec["title"],
+        description=normalized_spec["description"],
+        input_description=normalized_spec["input_description"],
+        output_description=normalized_spec["output_description"],
+        constraint_text=normalized_spec["constraint_text"],
+        time_limit=normalized_spec["time_limit"],
+        memory_limit=normalized_spec["memory_limit"],
+        category=normalized_spec["category"],
         test_cases=test_cases,
     )
 
 
 class GenerateAlgorithmRequest(BaseModel):
-    """알고리즘 문제 생성 API가 받는 요청 본문 구조."""
+    """Request body for algorithm problem generation."""
 
     difficulty: Literal["EASY", "MEDIUM", "HARD"] = Field(
-        default="MEDIUM", examples=["EASY", "MEDIUM", "HARD"]
+        default="MEDIUM",
+        examples=["EASY", "MEDIUM", "HARD"],
     )
-    category: str = Field(default="구현", examples=["dp", "graph", "구현", "정렬", "이분탐색"])
+    category: str = Field(
+        default="구현",
+        examples=["구현", "그래프", "정렬", "이분탐색", "그리디", "문자열"],
+    )
 
 
 class TestCaseResponse(BaseModel):
-    """생성된 테스트케이스 한 건 (DB test_cases 테이블 대응)."""
+    """Response shape for one generated test case."""
 
     input_data: str
     expected_output: str
@@ -325,7 +505,7 @@ class TestCaseResponse(BaseModel):
 
 
 class GenerateAlgorithmResponse(BaseModel):
-    """알고리즘 문제 생성 API가 반환하는 응답 본문 구조 (DB problems 테이블 대응)."""
+    """Response body for algorithm problem generation."""
 
     title: str
     description: str
@@ -340,7 +520,7 @@ class GenerateAlgorithmResponse(BaseModel):
 
 @app.post("/algorithm/generate", response_model=GenerateAlgorithmResponse)
 async def generate_algorithm(request: GenerateAlgorithmRequest) -> GenerateAlgorithmResponse:
-    """난이도와 카테고리를 받아 알고리즘 문제와 테스트케이스 세트를 생성한다."""
+    """Generate an algorithm problem from difficulty and category."""
 
     try:
         problem = await generate_algorithm_problem(
@@ -361,21 +541,19 @@ async def generate_algorithm(request: GenerateAlgorithmRequest) -> GenerateAlgor
         category=problem.category,
         test_cases=[
             TestCaseResponse(
-                input_data=tc.input_data,
-                expected_output=tc.expected_output,
-                is_sample=tc.is_sample,
-                case_order=tc.case_order,
+                input_data=test_case.input_data,
+                expected_output=test_case.expected_output,
+                is_sample=test_case.is_sample,
+                case_order=test_case.case_order,
             )
-            for tc in problem.test_cases
+            for test_case in problem.test_cases
         ],
     )
 
 
-# ── 자격증 RAG 문제 생성 ──────────────────────────────────────────────────────
-
 @app.get("/")
 def read_root() -> dict[str, str]:
-    """서버 상태 확인용 기본 응답을 반환한다."""
+    """Return a basic health response."""
 
     return {"message": "Certification RAG Question Generator"}
 
@@ -387,7 +565,7 @@ def read_root() -> dict[str, str]:
 async def generate_questions(
     request: GenerateQuestionsRequest,
 ) -> MultipleChoiceProblemResponse | ShortAnswerProblemResponse:
-    """자격증 이름을 받아 RAG 기반 문제 세트를 생성한다."""
+    """Generate certification questions through the RAG pipeline."""
 
     logger.info("Parsed /questions/generate request body: %s", request.model_dump_json())
 
