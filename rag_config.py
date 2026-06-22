@@ -13,7 +13,7 @@ OPENAI_BASE_URL = os.getenv(
     "OPENAI_BASE_URL",
     "https://gms.ssafy.io/gmsapi/api.openai.com/v1",
 )
-CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1-nano")
+CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-5.1")
 EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 CHROMA_DIR = os.getenv("CHROMA_DIR", "./chroma_db")
 CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "rag_chunks")

@@ -65,7 +65,14 @@ python rag_chroma_store.py --input rag_chunks.jsonl --syllabus-dir docs/syllabus
 
 ## 4. 문제 생성 API
 
-`main.py`는 FastAPI 서버입니다. 자격증 이름을 받으면 `chat_with_rag.py`가 Chroma에서 같은 자격증의 syllabus와 기출 청크만 검색하고, 검색 컨텍스트를 바탕으로 문제 JSON을 생성합니다. RAG에 해당 자격증이 없으면 다른 자격증 자료를 참조하지 않고 일반 범위 기반으로 문제를 만듭니다.
+`main.py`는 FastAPI 서버입니다. 현재 두 가지 생성 엔드포인트를 제공합니다.
+
+- `/questions/generate` — RAG 기반 자격증 문제 생성
+- `/algorithm/generate` — LLM 기반 알고리즘 코딩 문제 생성
+
+### 4-1. 자격증 문제 생성
+
+자격증 이름을 받으면 `chat_with_rag.py`가 Chroma에서 같은 자격증의 syllabus와 기출 청크만 검색하고, 검색 컨텍스트를 바탕으로 문제 JSON을 생성합니다. RAG에 해당 자격증이 없으면 다른 자격증 자료를 참조하지 않고 일반 범위 기반으로 문제를 만듭니다.
 
 문제 생성은 `초안 생성 -> 검수 AI 피드백 -> 피드백 반영 최종 수정` 순서로 진행됩니다. syllabus는 과목 범위와 주제 균형에, PDF 기출은 난이도와 출제 스타일 참고에 사용합니다. 요청은 한 번에 문제 1개만 생성하며, `problemType`으로 객관식(`MULTIPLE_CHOICE`) 또는 주관식(`SHORT_ANSWER`)을 지정합니다. `CODING`은 현재 이 엔드포인트에서 지원하지 않습니다. `MULTIPLE_CHOICE` 요청은 평평한 객관식 JSON으로, `SHORT_ANSWER` 요청은 `question`과 `answer`만 가진 평평한 JSON으로 반환됩니다.
 
@@ -118,6 +125,70 @@ POST /questions/generate
   "answer": "구조적 방법론"
 }
 ```
+
+### 4-2. 알고리즘 코딩 문제 생성
+
+`/algorithm/generate`는 난이도와 카테고리를 받아 알고리즘 코딩 문제 1개를 생성합니다. 응답에는 문제 본문, 제한값, 그리고 예제/채점용 테스트케이스가 포함됩니다.
+
+지원 난이도:
+
+- `EASY`
+- `MEDIUM`
+- `HARD`
+
+지원 카테고리:
+
+- `구현`
+- `dp`
+- `graph`
+- `정렬`
+- `이분탐색`
+- `greedy`
+- `bfs`
+- `string`
+
+요청 예시:
+
+```http
+POST /algorithm/generate
+```
+
+```json
+{
+  "difficulty": "MEDIUM",
+  "category": "구현"
+}
+```
+
+응답 필드:
+
+| 필드 | 설명 |
+|------|------|
+| `title` | 문제 제목 |
+| `description` | 문제 설명 |
+| `input_description` | 입력 형식 |
+| `output_description` | 출력 형식 |
+| `constraint_text` | 제약 조건 |
+| `time_limit` | 시간 제한 (ms) |
+| `memory_limit` | 메모리 제한 (MB) |
+| `category` | 최종 문제 카테고리 |
+| `test_cases` | 테스트케이스 목록 |
+
+`test_cases`는 다음 형태로 반환됩니다.
+
+| 필드 | 설명 |
+|------|------|
+| `input_data` | 실제 입력 문자열 |
+| `expected_output` | 정답 출력 |
+| `is_sample` | 예제 케이스 여부 |
+| `case_order` | 케이스 순서 |
+
+참고:
+
+- 응답의 앞 2개 테스트케이스는 `is_sample=true`인 예제 케이스이고, 나머지는 채점용 숨김 케이스입니다.
+- 내부적으로는 `plan -> spec -> reference solution -> testcase validation` 순서로 생성합니다.
+- 입력이 큰 문제는 LLM이 `input_generator` 형태로 테스트케이스를 제안하고, 서버가 이를 실행해 최종 `input_data`로 변환한 뒤 검증합니다.
+- 레퍼런스 솔루션 검증은 문제의 시간 제한을 바탕으로 동적으로 timeout을 잡습니다.
 
 ## 5. 권장 실행 순서
 

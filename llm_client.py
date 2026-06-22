@@ -16,6 +16,9 @@ def build_client() -> AsyncOpenAI:
     )
 
 
+_SUPPORTS_TEMPERATURE = not CHAT_MODEL.startswith("gpt-5")
+
+
 async def request_chat_completion(
     messages: list[dict[str, str]],
     *,
@@ -23,11 +26,10 @@ async def request_chat_completion(
 ) -> str:
     """OpenAI 호환 채팅 모델에 메시지를 보내고 텍스트 응답을 반환한다."""
 
-    response = await build_client().chat.completions.create(
-        model=CHAT_MODEL,
-        messages=messages,
-        temperature=temperature,
-    )
+    kwargs: dict = {"model": CHAT_MODEL, "messages": messages}
+    if _SUPPORTS_TEMPERATURE:
+        kwargs["temperature"] = temperature
+    response = await build_client().chat.completions.create(**kwargs)
     return response.choices[0].message.content or ""
 
 
@@ -38,10 +40,12 @@ async def request_json_completion(
 ) -> str:
     """JSON 객체 반환을 강제한 채팅 모델 호출로 문자열 JSON을 반환한다."""
 
-    response = await build_client().chat.completions.create(
-        model=CHAT_MODEL,
-        messages=messages,
-        temperature=temperature,
-        response_format={"type": "json_object"},
-    )
+    kwargs: dict = {
+        "model": CHAT_MODEL,
+        "messages": messages,
+        "response_format": {"type": "json_object"},
+    }
+    if _SUPPORTS_TEMPERATURE:
+        kwargs["temperature"] = temperature
+    response = await build_client().chat.completions.create(**kwargs)
     return response.choices[0].message.content or "{}"
