@@ -159,7 +159,8 @@ VALID_COMPLEXITY_CODES = {
     "RC_LOG_RC",
 }
 PLAN_RETRY_LIMIT = 3
-TESTCASE_RETRY_LIMIT = 5
+TESTCASE_RETRY_LIMIT = 3
+MAX_SAMPLE_PRIMARY_SIZE = 20  # sample cases must stay human-readable
 OPERATIONS_PER_MS = 5_000.0
 MEMORY_BYTES_PER_ITEM = 32
 TESTCASE_NEAR_MAX_RATIO = {"EASY": 0.4, "MEDIUM": 0.6, "HARD": 0.75}
@@ -311,71 +312,46 @@ Resource bands:
 - HARD: time 1500..4000 ms, memory 256..1024 MB
 
 Allowed input_model values:
-- ARRAY        # 배열/수열
-- GRID         # 2차원 격자/행렬
-- GRAPH        # 그래프 (정점·간선)
-- STRING       # 문자열
-- INTERVAL     # 구간
-- ANSWER_SEARCH  # 이분탐색으로 정답을 탐색하는 형태
+- ARRAY, GRID, GRAPH, STRING, INTERVAL, ANSWER_SEARCH
 
 Allowed complexity code values for opt_tc and bf_tc:
-- LINEAR      # O(N) 또는 O(V+E) 선형
-- LOG_N       # O(log N)
-- N_LOG_N     # O(N log N)
-- N2          # O(N²)
-- Q_LOG_N     # O(Q log N) — 쿼리 기반
-- V_PLUS_E    # O(V+E) — 그래프 순회
-- E_LOG_V     # O(E log V) — 다익스트라 등
-- RC          # O(R×C) — 격자 전체 순회
-- RC_LOG_RC   # O(R×C × log(R×C))
+- LINEAR, LOG_N, N_LOG_N, N2, Q_LOG_N, V_PLUS_E, E_LOG_V, RC, RC_LOG_RC
 
 Category-specific requirements:
 - 구현: use ARRAY, GRID, or STRING. Fill max_n for ARRAY/STRING or max_r and max_c for GRID.
-  # ARRAY/STRING이면 max_n, GRID이면 max_r·max_c를 채운다.
 - dp: use ARRAY or GRID. Fill max_n for ARRAY or max_r and max_c for GRID.
-  # ARRAY면 max_n, GRID면 max_r·max_c를 채운다.
-  N2 dp: max_n must be ≤ 5000 (N²=25M fits in time). LINEAR/N_LOG_N dp: max_n up to 200000.
-  # N2 DP는 max_n ≤ 5000 (N²=2500만 연산이 제한 내 통과). 선형·N log N DP는 최대 200000.
+  N2 dp: max_n must be ≤ 5000. LINEAR/N_LOG_N dp: max_n up to 200000.
   RC dp: max_r * max_c must fit within the time limit (e.g. 1000*1000=1M is fine).
-  # RC DP는 R×C가 시간 제한 내에 들어와야 한다 (예: 1000×1000=100만 정도).
-- graph: use GRAPH. 반드시 max_v and max_e를 둘 다 채운다.
-  # 그래프: max_v(정점 수)와 max_e(간선 수) 둘 다 필수.
-- 정렬: use ARRAY. 반드시 max_n을 채운다.
-  # 정렬: 배열 사용, max_n 필수.
-- 이분탐색: use ARRAY or ANSWER_SEARCH. 반드시 max_n을 채운다. Q가 중요하면 max_q도 채운다.
-  # 이분탐색: max_n 필수, 쿼리가 중요한 문제면 max_q도 채운다.
-- greedy: use ARRAY or INTERVAL. 반드시 max_n을 채운다.
-  # 그리디: max_n 필수.
-- bfs: use GRAPH or GRID. GRAPH면 max_v and max_e, GRID면 max_r and max_c를 채운다.
-  # BFS: GRAPH면 max_v·max_e, GRID면 max_r·max_c 필수.
-  GRAPH bfs: opt_tc=V_PLUS_E, bf_tc는 반드시 다른 값(예: N2)을 써야 한다. bf_tc=V_PLUS_E는 금지.
-  # GRAPH BFS: opt_tc는 V_PLUS_E 고정, bf_tc는 반드시 다른 값(예: N2). 같은 값 금지.
-  GRID bfs: opt_tc=RC, bf_tc는 반드시 다른 값(예: N2)을 써야 한다. bf_tc=RC는 금지.
-  # GRID BFS: opt_tc는 RC 고정, bf_tc는 반드시 다른 값. 같은 값 금지.
-- string: use STRING. 반드시 max_n을 채운다.
-  # 문자열: max_n 필수.
+- graph: use GRAPH. Fill both max_v and max_e.
+- 정렬: use ARRAY. Fill max_n.
+- 이분탐색: use ARRAY or ANSWER_SEARCH. Fill max_n. Fill max_q if queries matter.
+- greedy: use ARRAY or INTERVAL. Fill max_n.
+- bfs: use GRAPH or GRID. GRAPH: fill max_v and max_e. GRID: fill max_r and max_c.
+  GRAPH bfs: opt_tc=V_PLUS_E, bf_tc must differ (e.g. N2). bf_tc=V_PLUS_E is forbidden.
+  GRID bfs: opt_tc=RC, bf_tc must differ (e.g. N2). bf_tc=RC is forbidden.
+- string: use STRING. Fill max_n.
 
 Output schema:
 {
-  "category": "copy the input category exactly",          # 입력 category 그대로
-  "difficulty": "copy the input difficulty exactly",      # 입력 difficulty 그대로
-  "input_model": "one allowed value",                     # 허용된 값 중 하나
-  "intended_algorithm": "short phrase",                   # 의도한 알고리즘 (짧은 설명)
-  "intended_time_complexity": "short phrase such as O(N log N)",   # 최적 시간복잡도
-  "intended_memory_complexity": "short phrase such as O(N)",       # 공간복잡도
-  "opt_tc": "one allowed complexity code",                # 최적 복잡도 코드
-  "bf_tc": "one allowed complexity code",                 # 브루트포스 복잡도 코드
-  "max_constraints": "short Korean summary of constraints",  # 제약 조건 한국어 요약
-  "max_n": 200000,       # 배열/문자열 최대 크기 (해당 없으면 null)
-  "max_q": null,         # 쿼리 최대 수 (해당 없으면 null)
-  "max_v": null,         # 정점 최대 수 (해당 없으면 null)
-  "max_e": null,         # 간선 최대 수 (해당 없으면 null)
-  "max_r": null,         # 격자 행 최대 수 (해당 없으면 null)
-  "max_c": null,         # 격자 열 최대 수 (해당 없으면 null)
-  "peak_state_items": 200000,       # 메모리 추정용 최대 상태 항목 수
-  "chosen_time_limit_ms": 2000,     # 선택한 시간 제한 (ms)
-  "chosen_memory_limit_mb": 256,    # 선택한 메모리 제한 (MB)
-  "why_bruteforce_fails": "short explanation"  # 브루트포스가 통과 못하는 이유
+  "category": "copy the input category exactly",
+  "difficulty": "copy the input difficulty exactly",
+  "input_model": "one allowed value",
+  "intended_algorithm": "short phrase",
+  "intended_time_complexity": "short phrase such as O(N log N)",
+  "intended_memory_complexity": "short phrase such as O(N)",
+  "opt_tc": "one allowed complexity code",
+  "bf_tc": "one allowed complexity code",
+  "max_constraints": "short Korean summary of constraints",
+  "max_n": 200000,
+  "max_q": null,
+  "max_v": null,
+  "max_e": null,
+  "max_r": null,
+  "max_c": null,
+  "peak_state_items": 200000,
+  "chosen_time_limit_ms": 2000,
+  "chosen_memory_limit_mb": 256,
+  "why_bruteforce_fails": "short explanation"
 }
 """
 
@@ -411,14 +387,14 @@ Hard rules:
 
 Output schema:
 {
-  "title": "problem title",           # 문제 제목 (한국어)
-  "description": "problem statement", # 문제 설명 (한국어)
-  "input_description": "input format",  # 입력 형식 설명 (한국어)
-  "output_description": "output format", # 출력 형식 설명 (한국어)
-  "constraint_text": "constraints only", # 제약 조건만 (한국어)
-  "time_limit": 1000,    # 시간 제한 (ms) — 플랜의 chosen_time_limit_ms와 동일
-  "memory_limit": 256,   # 메모리 제한 (MB) — 플랜의 chosen_memory_limit_mb와 동일
-  "category": "category string"  # 카테고리 — 플랜과 동일
+  "title": "problem title (Korean)",
+  "description": "problem statement (Korean)",
+  "input_description": "input format (Korean)",
+  "output_description": "output format (Korean)",
+  "constraint_text": "constraints only (Korean)",
+  "time_limit": 1000,
+  "memory_limit": 256,
+  "category": "category string"
 }
 """
 
@@ -446,13 +422,12 @@ Hard rules:
 2. Create exactly 4 test cases.
 3. Each test case must have this shape:
    {
-     "input_data": "literal input OR null",       # 직접 입력 문자열 또는 null
-     "input_generator": "python code OR null",    # 입력 생성 Python 코드 또는 null
-     "expected_output": "leave as empty string — filled automatically",  # 빈 문자열로 두면 서버가 자동으로 채운다
-     "primary_size": 100,       # 이 케이스의 dominant 입력 크기 (아래 10번 규칙 참조)
-     "is_boundary": true,       # 경계 케이스 여부
-     "is_anti_naive": false,    # 브루트포스를 걸러내는 케이스 여부
-     "design_note": "short English note"  # 이 케이스의 설계 의도 (짧게)
+     "input_data": "literal input OR null",
+     "input_generator": "python code OR null",
+     "expected_output": "leave as empty string — filled automatically",
+     "primary_size": 100,
+     "is_boundary": true,
+     "is_anti_naive": false
    }
 4. input_data (or the output of input_generator) must print EVERY field in input_description.
    Count every value, every line, every token — a missing field causes IndexError.
@@ -465,15 +440,21 @@ Hard rules:
 6. All four inputs must represent different scenarios.
 7. Include at least one boundary case.
 8. Include at least one anti-naive case.
-9. Cases 3 and 4 (the 3rd and 4th in the array) are HIDDEN. At least one of them MUST
-   have is_anti_naive: true. Never leave BOTH hidden cases with is_anti_naive: false.
-   Anti-naive cases must have LARGE primary_size (close to the required threshold).
-10. primary_size must be the dominant input scale for the case:
+9. Cases 1 and 2 are SAMPLE cases shown directly to users. They MUST:
+   - Use literal input_data (never input_generator). Set input_generator to null.
+   - Have primary_size <= 20 so the input and output fit on one screen.
+   - Be small enough that a human can verify the answer by hand.
+10. Cases 3 and 4 are HIDDEN. At least one of them MUST have is_anti_naive: true.
+    Never leave BOTH hidden cases with is_anti_naive: false.
+    Hidden cases MUST use input_generator (not literal input_data) when the input model
+    requires large inputs. Anti-naive cases must have LARGE primary_size (close to the
+    required threshold).
+11. primary_size must be the dominant input scale for the case:
     - ARRAY / STRING / INTERVAL / ANSWER_SEARCH: use N (array length)
     - GRAPH: use max(V, E) — the LARGER of vertex count and edge count; never use V alone
     - GRID: use R*C (total cell count)
-11. Keep all test cases valid for the stated constraints.
-12. Return JSON only. No markdown, no code block, no extra text.
+12. Keep all test cases valid for the stated constraints.
+13. Return JSON only. No markdown, no code block, no extra text.
 """
 
 # TESTCASE_PROMPT 해설
@@ -499,6 +480,8 @@ Hard rules:
 2. Handle ALL edge cases including minimum/maximum constraints and empty inputs.
 3. Never assume extra fields that are not described; never skip fields that are described.
 4. Always print at least one line of output. Problems with empty output are not supported.
+5. Write the most time-efficient solution possible. Use O(N) or O(N log N) for N <= 10^6. Never use O(N^2) when N > 1000, and never use O(N^3) when N > 100. Nested brute-force loops over the full input are never acceptable as the intended solution.
+6. For 2D grids (R rows, C columns): set R=len(grid) and C=len(grid[0]) once at the start. In BFS/DFS/traversal, always guard every neighbor access with an explicit bounds check: 0 <= nr < R and 0 <= nc < C. Never access grid[nr][nc] without that guard.
 """
 
 # SOLUTION_PROMPT 해설
@@ -743,6 +726,32 @@ def _plan_brief(plan: AlgorithmGenerationPlan) -> str:
     )
 
 
+def _plan_to_compact_json(plan: AlgorithmGenerationPlan) -> str:
+    """Serialize plan to JSON without null fields or indentation to reduce token count."""
+    return json.dumps(
+        {k: v for k, v in plan.__dict__.items() if v is not None},
+        ensure_ascii=False,
+    )
+
+
+# Fields required by test case generation: structural/numeric only.
+# Descriptive text fields (intended_algorithm, max_constraints, why_bruteforce_fails, etc.)
+# are already captured in the spec and are not needed by the test case generator.
+_TESTCASE_PLAN_FIELDS = frozenset({
+    "category", "difficulty", "input_model", "opt_tc", "bf_tc",
+    "max_n", "max_q", "max_v", "max_e", "max_r", "max_c",
+    "chosen_time_limit_ms", "chosen_memory_limit_mb",
+})
+
+
+def _plan_for_testcase(plan: AlgorithmGenerationPlan) -> str:
+    """Compact plan JSON with only the fields needed for test case generation."""
+    return json.dumps(
+        {k: v for k, v in plan.__dict__.items() if v is not None and k in _TESTCASE_PLAN_FIELDS},
+        ensure_ascii=False,
+    )
+
+
 def _normalize_generation_plan(
     difficulty: str,
     category: str,
@@ -855,7 +864,6 @@ def _extract_test_case_list(testcase_data: dict[str, Any]) -> list[dict[str, Any
                 "primary_size": _parse_optional_positive_int(case.get("primary_size")) or 0,
                 "is_boundary": _parse_bool(case.get("is_boundary")),
                 "is_anti_naive": _parse_bool(case.get("is_anti_naive")),
-                "design_note": str(case.get("design_note", "")).strip(),
             }
         )
     return normalized_cases
@@ -1179,6 +1187,7 @@ def _validate_test_cases(
     must_use_generator = _plan_needs_generator(plan)
     seen_inputs: set[str] = set()
     for index, test_case in enumerate(test_cases, start=1):
+        is_sample = index <= 2
         has_generator = bool(test_case.get("input_generator"))
         has_literal = bool(test_case.get("input_data"))
         if has_generator and has_literal:
@@ -1186,13 +1195,26 @@ def _validate_test_cases(
                 f"case {index} has both input_data and input_generator — "
                 "set exactly one; the other must be null"
             )
-        elif must_use_generator and has_literal and not has_generator:
+        elif is_sample and has_generator and not has_literal:
+            issues.append(
+                f"case {index} is a SAMPLE case and must use literal input_data, not input_generator — "
+                "sample cases must be human-readable; set input_generator to null and write the input directly"
+            )
+        elif not is_sample and must_use_generator and has_literal and not has_generator:
             issues.append(
                 f"case {index} uses literal input_data for a {plan.input_model} problem — "
                 "set input_data to null and use input_generator instead"
             )
         elif not has_generator and not has_literal:
             issues.append(f"case {index} has empty input_data and no input_generator")
+        if is_sample:
+            ps = test_case.get("primary_size")
+            if isinstance(ps, int) and ps > MAX_SAMPLE_PRIMARY_SIZE:
+                issues.append(
+                    f"case {index} is a sample case but primary_size={ps} exceeds the limit of "
+                    f"{MAX_SAMPLE_PRIMARY_SIZE} — sample cases must be small enough for users to "
+                    "read and verify by hand; reduce the input size"
+                )
         if not has_generator:
             if test_case["input_data"] in seen_inputs:
                 issues.append(f"case {index} duplicates another input")
@@ -1286,12 +1308,13 @@ def _run_solution_sync(code: str, input_data: str, timeout: float) -> tuple[str 
             tmp_path = file.name
         result = subprocess.run(
             [sys.executable, tmp_path],
-            input=input_data.encode(),
+            input=input_data.encode("utf-8"),
             capture_output=True,
             timeout=timeout,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         )
         if result.returncode == 0:
-            output = result.stdout.decode().strip()
+            output = result.stdout.decode("utf-8").strip()
             if not output:
                 return None, "solution produced empty output (empty output is not supported)"
             return output, ""
@@ -1337,9 +1360,10 @@ def _run_generator_sync(code: str, timeout: float = 15.0) -> tuple[str | None, s
             [sys.executable, tmp_path],
             capture_output=True,
             timeout=timeout,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         )
         if result.returncode == 0:
-            output = result.stdout.decode()
+            output = result.stdout.decode("utf-8")
             if output.strip():
                 return output, ""
             return None, "generator produced empty output"
@@ -1437,9 +1461,26 @@ async def _generate_reference_solution(spec_text: str, error_feedback: str = "")
         )
         if "timed out after" in error_feedback:
             user_content += (
-                "(4) the previous solution timed out — complexity is too slow. "
-                "Use the intended optimal algorithm only; avoid quadratic rescans, "
-                "full recomputation per query, and one-print-per-line output on huge results.\n"
+                "(4) the previous solution TIMED OUT — the algorithm is too slow.\n"
+                "    You MUST rewrite it with a fundamentally better time complexity.\n"
+                "    Required complexity: O(N), O(N log N), or O(R*C) depending on input.\n"
+                "    FORBIDDEN: nested loops over the full input (O(N^2), O(R^2*C^2)), "
+                "repeated full-graph/grid traversals per query, "
+                "sorting inside a loop, and one-print-per-line on large outputs.\n"
+                "    For BFS/DFS on a grid: each cell must be visited AT MOST ONCE total (mark visited before enqueuing).\n"
+                "    For queries: precompute results in O(N) or O(N log N) before answering all queries in O(1) or O(log N) each.\n"
+            )
+        if "IndexError" in error_feedback and "grid[" in error_feedback:
+            user_content += (
+                "(5) the previous solution crashed with IndexError while accessing grid[r][c].\n"
+                "    CAUSE: a row or column index went out of bounds during BFS/DFS/traversal.\n"
+                "    FIX: set R=len(grid) and C=len(grid[0]) once. "
+                "For every neighbor (nr, nc) check `0 <= nr < R and 0 <= nc < C` BEFORE accessing grid[nr][nc].\n"
+                "    Example safe traversal:\n"
+                "      for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:\n"
+                "          nr, nc = r+dr, c+dc\n"
+                "          if 0 <= nr < R and 0 <= nc < C and not visited[nr][nc]:\n"
+                "              ...\n"
             )
         user_content += (
             "Recommended input pattern:\n"
@@ -1553,21 +1594,52 @@ async def _materialize_reference_outputs(
         )
         return issues, first_solution_error
 
-    # ── 2. Run all solution executions in parallel ────────────────────────────
-    runnable = [(index, tc) for index, tc in enumerate(test_cases, start=1) if tc["input_data"]]
-    if runnable:
+    # ── 2. Run solution executions in two phases for fast failure detection ──────
+    # Phase 1: small/logic cases (not anti-naive, not boundary) — quick to run.
+    # Phase 2: large anti-naive/boundary cases — only run when phase 1 fully passes.
+    # This avoids wasting the full timeout on large cases when the solution is broken.
+    all_runnable = [(index, tc) for index, tc in enumerate(test_cases, start=1) if tc["input_data"]]
+    if all_runnable:
         sol_started_at = time.perf_counter()
         solution_timeout = _reference_solution_timeout_seconds(plan)
+
+        # Phase 1: small/logic cases (not anti-naive and not boundary) — likely to catch
+        # obvious solution bugs quickly without waiting for large-input timeouts.
+        # Phase 2: large/anti-naive/boundary cases — only run when phase 1 fully passes.
+        # Both phases use the same timeout so a correct-but-slow reference solution is
+        # never incorrectly rejected, which would corrupt hidden-case expected outputs.
+        phase1 = [(i, tc) for i, tc in all_runnable if not tc.get("is_anti_naive") and not tc.get("is_boundary")]
+        phase2 = [(i, tc) for i, tc in all_runnable if tc.get("is_anti_naive") or tc.get("is_boundary")]
+        if not phase1:
+            phase1, phase2 = all_runnable, []
+
         logger.info(
-            "Running %s reference executions in parallel. timeout=%ss",
-            len(runnable),
-            solution_timeout,
+            "Running reference executions in 2 phases (timeout=%ss). phase1=%s phase2=%s",
+            solution_timeout, len(phase1), len(phase2),
         )
-        sol_results = await asyncio.gather(
-            *(_run_solution(solution_code, tc["input_data"], timeout=solution_timeout) for _, tc in runnable)
+
+        phase1_results = await asyncio.gather(
+            *(_run_solution(solution_code, tc["input_data"], timeout=solution_timeout) for _, tc in phase1)
         )
+        phase1_failed = any(actual is None for actual, _ in phase1_results)
+
+        if phase1_failed:
+            if phase2:
+                logger.info("Phase 1 failed — skipping %s large cases to avoid timeout waste.", len(phase2))
+            runnable = phase1
+            sol_results = list(phase1_results)
+        elif not phase2:
+            runnable = phase1
+            sol_results = list(phase1_results)
+        else:
+            phase2_results = await asyncio.gather(
+                *(_run_solution(solution_code, tc["input_data"], timeout=solution_timeout) for _, tc in phase2)
+            )
+            runnable = phase1 + phase2
+            sol_results = list(phase1_results) + list(phase2_results)
         logger.info("All reference executions finished in %sms.", int((time.perf_counter() - sol_started_at) * 1000))
     else:
+        runnable = []
         sol_results = []
 
     for (index, test_case), (actual, error_info) in zip(runnable, sol_results):
@@ -1718,19 +1790,21 @@ async def _generate_validated_test_cases(
                 )
             generator_mandate = (
                 f"\n\nMANDATORY — {plan.input_model} INPUT MODEL:\n"
-                "ALL 4 test cases MUST use input_generator. Set input_data to null for every case.\n"
-                "NEVER write literal data in input_data — it will exceed the response size limit.\n"
+                "Cases 1 and 2 (SAMPLE): use literal input_data with primary_size <= 20. "
+                "Set input_generator to null for cases 1 and 2.\n"
+                "Cases 3 and 4 (HIDDEN): MUST use input_generator. Set input_data to null.\n"
+                "NEVER write large literal data in input_data for hidden cases — it will exceed the response size limit.\n"
                 "Each input_generator must be short deterministic Python 3 code (< 30 lines) "
                 "that prints the complete input to stdout, following input_description exactly.\n"
                 "Write ALL necessary imports at the top (import math, import string, etc.).\n"
                 "Do NOT use random — use arithmetic/formula-based patterns instead.\n"
                 f"{anti_naive_reminder}"
-                f"Example:\n{example}"
+                f"Example (for hidden cases):\n{example}"
             )
 
         user_content = (
             "Locked planning JSON:\n"
-            f"{json.dumps(plan.__dict__, ensure_ascii=False, indent=2)}\n\n"
+            f"{_plan_for_testcase(plan)}\n\n"
             "Problem spec JSON:\n"
             f"{spec_text}\n\n"
             "Create exactly 4 test cases with valid metadata."
@@ -1756,8 +1830,8 @@ async def _generate_validated_test_cases(
             last_issues = ["JSON response was truncated because input_data contained too much literal text"]
             feedback = (
                 "CRITICAL: Your previous JSON response was CUT OFF because input_data was too large.\n"
-                f"For this {plan.input_model} problem, ALL 4 test cases MUST use input_generator.\n"
-                "Set input_data to null for every case.\n"
+                f"For this {plan.input_model} problem, cases 3 and 4 MUST use input_generator (not input_data).\n"
+                "Cases 1 and 2 (sample) must use small literal input_data with primary_size <= 20.\n"
                 "input_generator must be short Python 3 code (< 30 lines) that prints the input.\n"
                 + (generator_mandate.strip() if generator_mandate else "")
             )
@@ -1842,7 +1916,7 @@ async def generate_algorithm_problem(difficulty: str, category: str) -> Algorith
             "role": "user",
             "content": (
                 "Locked planning JSON:\n"
-                f"{json.dumps(plan.__dict__, ensure_ascii=False, indent=2)}\n\n"
+                f"{_plan_to_compact_json(plan)}\n\n"
                 "Generate the final problem spec JSON. "
                 "Keep category, time_limit, and memory_limit exactly aligned with the plan."
             ),
@@ -1870,13 +1944,16 @@ async def generate_algorithm_problem(difficulty: str, category: str) -> Algorith
             error_str = str(error)
             if "solution_broken" in error_str and solution_attempt < solution_retry_limit:
                 error_detail = error_str.replace("solution_broken\n", "", 1)
+                # Truncate the traceback portion to save tokens; keep the "cases:" summary intact.
+                tb_part, _, cases_part = error_detail.partition("\ncases:")
+                error_feedback = tb_part[:200] + ("\ncases:" + cases_part if cases_part else "")
                 logger.warning(
                     "Reference solution appears broken (attempt %s/%s). Regenerating. error=%s",
                     solution_attempt,
                     solution_retry_limit,
-                    error_detail[:200],
+                    error_feedback[:200],
                 )
-                solution_code = await _generate_reference_solution(spec_text, error_feedback=error_detail)
+                solution_code = await _generate_reference_solution(spec_text, error_feedback=error_feedback)
             else:
                 raise
 
