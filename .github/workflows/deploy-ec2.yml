@@ -57,6 +57,20 @@ jobs:
           ssh -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
             "mkdir -p '${{ secrets.EC2_DEPLOY_ROOT }}/backend' '/opt/passit/ai/chroma_db' '/opt/passit/judge-workspaces'"
 
+      - name: Sync runtime env file
+        env:
+          PASSIT_ENV_AWS: ${{ secrets.PASSIT_ENV_AWS }}
+        run: |
+          if [[ -z "$PASSIT_ENV_AWS" ]]; then
+            echo "PASSIT_ENV_AWS secret is required." >&2
+            exit 1
+          fi
+          printf '%s' "$PASSIT_ENV_AWS" | ssh -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "cat > '${{ secrets.EC2_DEPLOY_ROOT }}/backend/.env.aws'"
+          ssh -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "chmod 600 '${{ secrets.EC2_DEPLOY_ROOT }}/backend/.env.aws' && \
+             sed -i 's/\r$//' '${{ secrets.EC2_DEPLOY_ROOT }}/backend/.env.aws'"
+
       - name: Update AI image tag on EC2
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -71,6 +85,12 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
             "chmod +x '${{ secrets.EC2_DEPLOY_ROOT }}/backend/scripts/deploy-stack.sh' && \
+             sed -i 's/\r$//' '${{ secrets.EC2_DEPLOY_ROOT }}/backend/.env.aws' '${{ secrets.EC2_DEPLOY_ROOT }}/backend/scripts/deploy-stack.sh' && \
              PASSIT_ROOT='${{ secrets.EC2_DEPLOY_ROOT }}' \
              ENV_FILE='.env.aws' \
              '${{ secrets.EC2_DEPLOY_ROOT }}/backend/scripts/deploy-stack.sh'"
+
+      - name: Show running containers
+        run: |
+          ssh -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'"
