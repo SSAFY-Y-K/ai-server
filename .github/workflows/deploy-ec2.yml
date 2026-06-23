@@ -88,6 +88,7 @@ jobs:
              sed -i 's/\r$//' '${{ secrets.EC2_DEPLOY_ROOT }}/backend/.env.aws' '${{ secrets.EC2_DEPLOY_ROOT }}/backend/scripts/deploy-stack.sh' && \
              PASSIT_ROOT='${{ secrets.EC2_DEPLOY_ROOT }}' \
              ENV_FILE='.env.aws' \
+             SERVICES='ai-server backend frontend' \
              '${{ secrets.EC2_DEPLOY_ROOT }}/backend/scripts/deploy-stack.sh'"
 
       - name: Show running containers
