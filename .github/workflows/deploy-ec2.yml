@@ -2,7 +2,7 @@ name: Build And Deploy AI Image To EC2
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
 
 permissions:
