@@ -158,6 +158,7 @@ VALID_COMPLEXITY_CODES = {
     "RC",
     "RC_LOG_RC",
 }
+EASY_ALLOWED_OPT_TC = {"LINEAR", "LOG_N", "N_LOG_N", "RC", "V_PLUS_E"}
 PLAN_RETRY_LIMIT = 3
 TESTCASE_RETRY_LIMIT = 3
 MAX_SAMPLE_PRIMARY_SIZE = 20  # sample cases must stay human-readable
@@ -314,6 +315,7 @@ Hard rules:
 
 Difficulty meaning:
 - EASY: direct main idea, lighter implementation, simpler edge cases.
+  opt_tc must be one of: LINEAR, LOG_N, N_LOG_N, RC, V_PLUS_E. N2/E_LOG_V/RC_LOG_RC/Q_LOG_N are forbidden for EASY.
 - MEDIUM: standard solution must be identified and implemented correctly.
 - HARD: harder idea, optimization, or edge-case handling.
 
@@ -1163,6 +1165,13 @@ def _validate_plan(
         issues.append(f"{requested_category} category requires a compatible opt_tc")
     if not any(_has_required_shape(plan, required_fields) for required_fields in profile["required_any"]):
         issues.append(f"{requested_category} category is missing required size fields")
+
+    if plan.difficulty == "EASY" and plan.opt_tc not in EASY_ALLOWED_OPT_TC:
+        issues.append(
+            f"EASY difficulty requires a simple opt_tc but got {plan.opt_tc}. "
+            f"Allowed: {', '.join(sorted(EASY_ALLOWED_OPT_TC))}. "
+            "N2/E_LOG_V/RC_LOG_RC/Q_LOG_N are MEDIUM or above."
+        )
 
     if plan.opt_tc == plan.bf_tc:
         issues.append("bf_tc must be weaker than opt_tc")
