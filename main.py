@@ -161,7 +161,18 @@ VALID_COMPLEXITY_CODES = {
 PLAN_RETRY_LIMIT = 3
 TESTCASE_RETRY_LIMIT = 3
 MAX_SAMPLE_PRIMARY_SIZE = 20  # sample cases must stay human-readable
-OPERATIONS_PER_MS = 5_000.0
+OPERATIONS_PER_MS = 50_000.0  # C++ baseline: ~50M ops/sec per ms
+MIN_OPS_BUDGET = 20_000_000.0  # C++ floor; scaled down by language multiplier
+LANGUAGE_MULTIPLIERS: dict[str, float] = {
+    "cpp": 1.0,    # ~50M ops/ms
+    "java": 0.5,   # ~25M ops/ms (JVM overhead)
+    "python": 0.2, # ~10M ops/ms (interpreter overhead)
+}
+MAX_N_FOR_N2: dict[str, int] = {
+    "cpp": 10000,
+    "java": 5000,
+    "python": 2000,
+}
 MEMORY_BYTES_PER_ITEM = 32
 TESTCASE_NEAR_MAX_RATIO = {"EASY": 0.4, "MEDIUM": 0.6, "HARD": 0.75}
 TESTCASE_ANTI_NAIVE_RATIO = {"EASY": 0.2, "MEDIUM": 0.3, "HARD": 0.4}
@@ -236,12 +247,12 @@ RESOURCE_BANDS = {
 
 CATEGORY_PROFILES = {
     "구현": {
-        "input_models": {"ARRAY", "GRID", "STRING"},
-        "opt_tc": {"LINEAR", "N_LOG_N", "RC"},
+        "input_models": {"ARRAY", "GRID", "STRING", "INTERVAL"},
+        "opt_tc": {"LINEAR", "N_LOG_N", "N2", "RC", "RC_LOG_RC"},
         "required_any": (("max_n",), ("max_r", "max_c")),
     },
     "dp": {
-        "input_models": {"ARRAY", "GRID"},
+        "input_models": {"ARRAY", "GRID", "STRING", "INTERVAL"},
         "opt_tc": {"LINEAR", "N_LOG_N", "N2", "RC"},
         "required_any": (("max_n",), ("max_r", "max_c")),
     },
@@ -252,7 +263,7 @@ CATEGORY_PROFILES = {
     },
     "정렬": {
         "input_models": {"ARRAY"},
-        "opt_tc": {"N_LOG_N"},
+        "opt_tc": {"N_LOG_N", "LINEAR"},
         "required_any": (("max_n",),),
     },
     "이분탐색": {
@@ -261,18 +272,18 @@ CATEGORY_PROFILES = {
         "required_any": (("max_n",),),
     },
     "greedy": {
-        "input_models": {"ARRAY", "INTERVAL"},
+        "input_models": {"ARRAY", "INTERVAL", "STRING"},
         "opt_tc": {"LINEAR", "N_LOG_N"},
         "required_any": (("max_n",),),
     },
     "bfs": {
         "input_models": {"GRAPH", "GRID"},
-        "opt_tc": {"V_PLUS_E", "RC"},
+        "opt_tc": {"V_PLUS_E", "RC", "E_LOG_V", "RC_LOG_RC"},
         "required_any": (("max_v", "max_e"), ("max_r", "max_c")),
     },
     "string": {
         "input_models": {"STRING"},
-        "opt_tc": {"LINEAR", "N_LOG_N"},
+        "opt_tc": {"LINEAR", "N_LOG_N", "N2"},
         "required_any": (("max_n",),),
     },
 }
@@ -318,18 +329,26 @@ Allowed complexity code values for opt_tc and bf_tc:
 - LINEAR, LOG_N, N_LOG_N, N2, Q_LOG_N, V_PLUS_E, E_LOG_V, RC, RC_LOG_RC
 
 Category-specific requirements:
-- 구현: use ARRAY, GRID, or STRING. Fill max_n for ARRAY/STRING or max_r and max_c for GRID.
-- dp: use ARRAY or GRID. Fill max_n for ARRAY or max_r and max_c for GRID.
-  N2 dp: max_n must be ≤ 5000. LINEAR/N_LOG_N dp: max_n up to 200000.
+- 구현: use ARRAY, GRID, STRING, or INTERVAL. Fill max_n for ARRAY/STRING/INTERVAL or max_r and max_c for GRID.
+  N2 구현: max_n must be ≤ 5000 (java), ≤ 10000 (cpp), ≤ 2000 (python). Suitable when brute-force enumeration is actually optimal.
+- dp: use ARRAY, GRID, STRING, or INTERVAL. Fill max_n for ARRAY/STRING/INTERVAL or max_r and max_c for GRID.
+  N2 dp: max_n must be ≤ 5000 (java), ≤ 10000 (cpp), ≤ 2000 (python). Covers LCS, edit distance, palindrome DP, and interval DP (e.g. matrix chain).
+  LINEAR/N_LOG_N dp: max_n up to 200000.
   RC dp: max_r * max_c must fit within the time limit (e.g. 1000*1000=1M is fine).
+  STRING dp: model LCS-style (two strings, each length max_n) or palindrome partitioning. Use N2 opt_tc.
+  INTERVAL dp: model interval decomposition (e.g. matrix chain, burst balloons). Use N2 opt_tc, max_n ≤ 500.
 - graph: use GRAPH. Fill both max_v and max_e.
-- 정렬: use ARRAY. Fill max_n.
+  V_PLUS_E graph (BFS/DFS): bf_tc must differ (e.g. N2). bf_tc=V_PLUS_E is forbidden.
+  E_LOG_V graph (Dijkstra/MST): bf_tc must differ (e.g. N2). bf_tc=E_LOG_V is forbidden.
+- 정렬: use ARRAY. Fill max_n. opt_tc=N_LOG_N for comparison-based sort; opt_tc=LINEAR for counting/radix sort.
 - 이분탐색: use ARRAY or ANSWER_SEARCH. Fill max_n. Fill max_q if queries matter.
-- greedy: use ARRAY or INTERVAL. Fill max_n.
+- greedy: use ARRAY, INTERVAL, or STRING. Fill max_n.
 - bfs: use GRAPH or GRID. GRAPH: fill max_v and max_e. GRID: fill max_r and max_c.
-  GRAPH bfs: opt_tc=V_PLUS_E, bf_tc must differ (e.g. N2). bf_tc=V_PLUS_E is forbidden.
-  GRID bfs: opt_tc=RC, bf_tc must differ (e.g. N2). bf_tc=RC is forbidden.
-- string: use STRING. Fill max_n.
+  GRAPH bfs V_PLUS_E (BFS/DFS): bf_tc must differ (e.g. N2). bf_tc=V_PLUS_E is forbidden.
+  GRAPH bfs E_LOG_V (Dijkstra): bf_tc must differ (e.g. N2 for naive O(V²) Dijkstra). bf_tc=E_LOG_V is forbidden.
+  GRID bfs RC (BFS): bf_tc must differ (e.g. N2). bf_tc=RC is forbidden.
+  GRID bfs RC_LOG_RC (weighted BFS / 0-1 BFS): bf_tc must differ (e.g. N2). bf_tc=RC_LOG_RC is forbidden.
+- string: use STRING. Fill max_n. opt_tc=N2 for LCS or edit distance (O(N²)); opt_tc=LINEAR for KMP/Z-algorithm; opt_tc=N_LOG_N for suffix array.
 
 Output schema:
 {
@@ -366,6 +385,11 @@ Output schema:
 # - opt_tc와 bf_tc는 허용된 복잡도 코드 중 하나를 사용한다.
 # - 복잡도 코드 의미:
 #   LINEAR, LOG_N, N_LOG_N, N2, Q_LOG_N, V_PLUS_E, E_LOG_V, RC, RC_LOG_RC 중 하나를 사용한다.
+# - 카테고리별 input_model 확장:
+#   dp는 ARRAY/GRID 외에 STRING(LCS·편집거리), INTERVAL(구간 DP)도 허용.
+#   구현은 INTERVAL도 허용. greedy는 STRING도 허용.
+#   bfs는 E_LOG_V(다익스트라 on GRAPH), RC_LOG_RC(weighted BFS on GRID)도 허용.
+#   string은 N2 opt_tc(LCS·편집거리)도 허용. 정렬은 LINEAR opt_tc(계수·기수 정렬)도 허용.
 # - 카테고리별로 max_n, max_q, max_v, max_e, max_r, max_c 같은 제약 필드를 맞게 채운다.
 # - 최종 출력은 JSON 객체 하나이며, 출력 스키마의 각 필드는 그대로 맞춰야 한다.
 
@@ -648,8 +672,8 @@ def _infer_size_fields(
                 inferred["max_n"] = 5000
             else:
                 inferred["max_n"] = 200000
-        elif opt_tc == "N2" and inferred["max_n"] > 5000:
-            pass  # leave as-is; _validate_plan will reject and request a smaller max_n
+        elif opt_tc == "N2" and inferred["max_n"] > 10000:
+            pass  # leave as-is; _validate_plan will reject based on language-specific MAX_N_FOR_N2
     if input_model == "STRING" and inferred["max_n"] is None:
         inferred["max_n"] = 200000
     if category == "이분탐색" and inferred["max_q"] is None and opt_tc == "Q_LOG_N":
@@ -685,11 +709,17 @@ def _build_plan_feedback(plan: AlgorithmGenerationPlan, issues: list[str]) -> st
         hints.append("bf_tc must exceed the time budget and be at least 8x more expensive than opt_tc.")
         if plan.input_model == "GRID":
             hints.append("For GRID, use a clearly superlinear brute force over total cells and keep R*C large.")
-            hints.append("Prefer bf_tc=RC_LOG_RC or bf_tc=N2 only when it is truly over total cells, not equivalent to RC.")
+            if plan.opt_tc in {"RC", "RC_LOG_RC"}:
+                hints.append(f"opt_tc={plan.opt_tc} is already the efficient path; bf_tc must be strictly worse (e.g. N2).")
+            else:
+                hints.append("Prefer bf_tc=N2 when opt_tc is RC or RC_LOG_RC.")
         elif plan.input_model in {"ARRAY", "STRING", "INTERVAL", "ANSWER_SEARCH"}:
             hints.append("For ARRAY/STRING-like inputs, prefer bf_tc=N2 and keep max_n near the upper bound.")
         elif plan.input_model == "GRAPH":
-            hints.append("For GRAPH, prefer a clearly slower bf_tc such as E_LOG_V with large enough V and E.")
+            if plan.opt_tc in {"V_PLUS_E", "E_LOG_V"}:
+                hints.append(f"opt_tc={plan.opt_tc} is already efficient; bf_tc must be strictly worse (e.g. N2 for naive O(V²)).")
+            else:
+                hints.append("For GRAPH, prefer bf_tc=N2 (naive approach) with large enough V and E.")
 
     if hints:
         feedback += "\n" + "\n".join(f"- {hint}" for hint in hints)
@@ -924,8 +954,9 @@ def _estimate_ops(plan: AlgorithmGenerationPlan, complexity_code: str) -> float 
     return None
 
 
-def _ops_budget(time_limit_ms: int) -> float:
-    return max(1_500_000.0, time_limit_ms * OPERATIONS_PER_MS)
+def _ops_budget(time_limit_ms: int, language: str = "java") -> float:
+    multiplier = LANGUAGE_MULTIPLIERS.get(language, 0.5)
+    return max(MIN_OPS_BUDGET, time_limit_ms * OPERATIONS_PER_MS) * multiplier
 
 
 def _estimate_peak_state_items(plan: AlgorithmGenerationPlan) -> int:
@@ -1103,6 +1134,7 @@ def _validate_plan(
     requested_difficulty: str,
     requested_category: str,
     plan: AlgorithmGenerationPlan,
+    language: str = "java",
 ) -> list[str]:
     issues: list[str] = []
 
@@ -1135,15 +1167,18 @@ def _validate_plan(
     if plan.opt_tc == plan.bf_tc:
         issues.append("bf_tc must be weaker than opt_tc")
 
-    if plan.opt_tc == "N2" and (plan.max_n or 0) > 5000:
-        issues.append(
-            f"N2 opt_tc requires max_n <= 5000 (N²=25M fits budget), "
-            f"but max_n={plan.max_n}. Reduce max_n or choose a different opt_tc."
-        )
+    if plan.opt_tc == "N2":
+        limit_n = MAX_N_FOR_N2.get(language, 5000)
+        if (plan.max_n or 0) > limit_n:
+            issues.append(
+                f"N2 opt_tc requires max_n <= {limit_n} for {language} "
+                f"(N²={limit_n ** 2:,} fits budget), "
+                f"but max_n={plan.max_n}. Reduce max_n or choose a different opt_tc."
+            )
 
     opt_ops = _estimate_ops(plan, plan.opt_tc)
     bf_ops = _estimate_ops(plan, plan.bf_tc)
-    ops_budget = _ops_budget(plan.chosen_time_limit_ms)
+    ops_budget = _ops_budget(plan.chosen_time_limit_ms, language)
 
     if opt_ops is None:
         issues.append("could not estimate opt_tc operations")
@@ -1153,7 +1188,7 @@ def _validate_plan(
     if bf_ops is None:
         issues.append("could not estimate bf_tc operations")
     else:
-        if bf_ops <= ops_budget * 1.25:
+        if bf_ops <= ops_budget * 1.1:
             issues.append("bf_tc too weak; brute force may still pass")
         if opt_ops is not None and bf_ops < opt_ops * 8:
             issues.append("bf_tc is not sufficiently worse than opt_tc")
@@ -1393,10 +1428,10 @@ async def _run_generator(code: str, timeout: float = 15.0) -> tuple[str | None, 
     )
 
 
-async def _generate_validated_plan(difficulty: str, category: str) -> AlgorithmGenerationPlan:
+async def _generate_validated_plan(difficulty: str, category: str, language: str = "java") -> AlgorithmGenerationPlan:
     feedback = ""
     last_issues: list[str] = []
-    logger.info("Algorithm generation stage started: plan generation. category=%s difficulty=%s", category, difficulty)
+    logger.info("Algorithm generation stage started: plan generation. category=%s difficulty=%s language=%s", category, difficulty, language)
 
     for attempt in range(1, PLAN_RETRY_LIMIT + 1):
         attempt_started_at = time.perf_counter()
@@ -1422,7 +1457,7 @@ async def _generate_validated_plan(difficulty: str, category: str) -> AlgorithmG
         plan_raw = await request_json_completion(plan_messages, temperature=0.2)
         plan_data = _parse_json_object(plan_raw, "algorithm plan")
         plan = _normalize_generation_plan(difficulty, category, plan_data)
-        issues = _validate_plan(difficulty, category, plan)
+        issues = _validate_plan(difficulty, category, plan, language)
         if not issues:
             elapsed_ms = int((time.perf_counter() - attempt_started_at) * 1000)
             logger.info(
@@ -1901,12 +1936,12 @@ async def _generate_validated_test_cases(
     raise RuntimeError(f"Failed to generate valid test cases: {'; '.join(last_issues)}")
 
 
-async def generate_algorithm_problem(difficulty: str, category: str) -> AlgorithmProblem:
+async def generate_algorithm_problem(difficulty: str, category: str, language: str = "java") -> AlgorithmProblem:
     """Generate one algorithm problem through plan, spec, testcase, and reference checks."""
     started_at = time.perf_counter()
-    logger.info("Algorithm generation request started. category=%s difficulty=%s", category, difficulty)
+    logger.info("Algorithm generation request started. category=%s difficulty=%s language=%s", category, difficulty, language)
 
-    plan = await _generate_validated_plan(difficulty, category)
+    plan = await _generate_validated_plan(difficulty, category, language)
 
     spec_started_at = time.perf_counter()
     logger.info("Algorithm generation stage started: problem spec generation. %s", _plan_brief(plan))
@@ -2003,6 +2038,10 @@ class GenerateAlgorithmRequest(BaseModel):
         default="구현",
         examples=["구현", "dp", "graph", "정렬", "이분탐색", "greedy", "bfs", "string"],
     )
+    language: Literal["cpp", "java", "python"] = Field(
+        default="java",
+        examples=["cpp", "java", "python"],
+    )
 
 
 class TestCaseResponse(BaseModel):
@@ -2033,15 +2072,17 @@ async def generate_algorithm(request: GenerateAlgorithmRequest) -> GenerateAlgor
     """Generate an algorithm problem from difficulty and category."""
     endpoint_started_at = time.perf_counter()
     logger.info(
-        "Incoming /algorithm/generate request. category=%s difficulty=%s",
+        "Incoming /algorithm/generate request. category=%s difficulty=%s language=%s",
         request.category,
         request.difficulty,
+        request.language,
     )
 
     try:
         problem = await generate_algorithm_problem(
             difficulty=request.difficulty,
             category=request.category,
+            language=request.language,
         )
     except RuntimeError as error:
         logger.exception(
