@@ -81,6 +81,12 @@ jobs:
              'AI_SERVER_IMAGE=$REGISTRY/$AI_ECR_REPOSITORY:$IMAGE_TAG' \
              > '${{ secrets.EC2_DEPLOY_ROOT }}/backend/.env.images.ai'"
 
+      - name: Clean up Docker resources on EC2
+        run: |
+          ssh -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "docker system prune -af --volumes 2>/dev/null || true; \
+             df -h /"
+
       - name: Run Docker Compose deployment
         run: |
           ssh -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
