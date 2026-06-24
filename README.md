@@ -219,26 +219,39 @@ POST /algorithm/generate
 ```json
 {
   "difficulty": "MEDIUM",
-  "category": "구현"
+  "category": "dp",
+  "language": "java"
 }
 ```
 
 지원 난이도:
 
-- `EASY`
-- `MEDIUM`
-- `HARD`
+| 값 | 설명 |
+| --- | --- |
+| `EASY` | 단순 아이디어, 가벼운 구현. opt_tc는 LINEAR/LOG_N/N_LOG_N/RC/V_PLUS_E만 허용 |
+| `MEDIUM` | 표준 알고리즘을 정확히 파악하고 구현해야 통과 |
+| `HARD` | 핵심 아이디어 발견이 어렵거나 엣지케이스 처리가 복잡 |
 
 지원 카테고리:
 
-- `구현`
-- `dp`
-- `graph`
-- `정렬`
-- `이분탐색`
-- `greedy`
-- `bfs`
-- `string`
+| 값 | 허용 input_model | 허용 opt_tc |
+| --- | --- | --- |
+| `구현` | ARRAY, GRID, STRING, INTERVAL | LINEAR, N_LOG_N, N2, RC, RC_LOG_RC |
+| `dp` | ARRAY, GRID, STRING, INTERVAL | LINEAR, N_LOG_N, N2, RC |
+| `graph` | GRAPH | V_PLUS_E, E_LOG_V |
+| `정렬` | ARRAY | N_LOG_N, LINEAR |
+| `이분탐색` | ARRAY, ANSWER_SEARCH | LOG_N, N_LOG_N, Q_LOG_N |
+| `greedy` | ARRAY, INTERVAL, STRING | LINEAR, N_LOG_N |
+| `bfs` | GRAPH, GRID | V_PLUS_E, RC, E_LOG_V, RC_LOG_RC |
+| `string` | STRING | LINEAR, N_LOG_N, N2 |
+
+지원 언어 (`language` 파라미터, 기본값 `java`):
+
+| 값 | 1초당 유효 연산량 | N2 허용 max_n |
+| --- | --- | --- |
+| `cpp` | 5,000만 | 10,000 |
+| `java` | 2,500만 | 5,000 |
+| `python` | 1,000만 | 2,000 |
 
 응답의 주요 필드:
 
@@ -260,17 +273,53 @@ POST /algorithm/generate
 | --- | --- |
 | `input_data` | 실제 입력 문자열 |
 | `expected_output` | 정답 출력 |
-| `is_sample` | 예제 케이스 여부 |
+| `is_sample` | 예제 케이스 여부 (앞 2개가 예제) |
 | `case_order` | 케이스 순서 |
 
-알고리즘 문제 생성은 `plan -> spec -> reference solution -> testcase validation` 순서로 동작합니다. 앞 2개 테스트케이스는 예제용이고, 나머지는 채점용 숨김 케이스로 쓰는 것을 전제로 합니다.
+#### 내부 생성 파이프라인
+
+```
+1. Plan 생성 (최대 3회 재시도)
+   LLM이 알고리즘·복잡도·제약 수치를 JSON으로 설계
+   → 시간복잡도 budget, 브루트포스 격차, 카테고리 규칙 검증
+
+2. 문제 Spec 생성
+   확정된 Plan을 잠금 후 LLM이 제목·설명·입출력 형식 작성
+
+3. 레퍼런스 솔루션 생성 (최대 3회 재시도)
+   LLM이 Python 정답 코드 생성
+   → TLE/RuntimeError 발생 시 피드백 포함해서 재생성
+
+4. 테스트케이스 생성 + 실행 검증
+   LLM이 4개 케이스 생성 (sample 2 + hidden 2)
+   → 서버에서 Python 직접 실행해 expected_output 자동 채점
+   → anti-naive 케이스 포함 여부, 중복 입력, 크기 기준 검증
+```
+
+#### Plan 검증 기준
+
+시간복잡도 budget 공식:
+
+```
+budget = max(20,000,000, time_limit_ms × 50,000) × language_multiplier
+  cpp    multiplier = 1.0  →  2000ms = 100,000,000 ops
+  java   multiplier = 0.5  →  2000ms =  50,000,000 ops
+  python multiplier = 0.2  →  2000ms =  20,000,000 ops
+```
+
+통과 조건:
+- `opt_ops ≤ budget` : 최적해가 시간 안에 통과
+- `bf_ops > budget × 1.1` : 브루트포스는 통과 불가
+- `bf_ops ≥ opt_ops × 8` : 두 코드 간 격차가 충분히 존재
 
 ## 유지보수 메모
 
 - 자격증명을 추가할 때는 `docs/<자격증명>/` PDF 경로와 `docs/syllabus/<자격증명>.md` 이름을 맞추면 검색 필터가 가장 단순해집니다.
 - `rag_chroma_store.py`는 기본적으로 로컬 해시 임베딩을 사용해 DB를 만듭니다. 이 방식은 외부 임베딩 호출 없이 재현 가능하지만, 검색 품질을 올리려면 OpenAI 임베딩 기반 DB 생성 흐름과 함께 `rag_embeddings.py` 설정도 같이 점검해야 합니다.
 - `/questions/generate`에서 `CODING`은 요청 모델에는 포함되어 있지만 현재 처리하지 않습니다. 코딩 문제는 `/algorithm/generate`를 사용합니다.
-- `main.py`에는 알고리즘 문제 생성 로직이 많이 모여 있습니다. 카테고리나 검증 규칙을 확장할 때는 `VALID_CATEGORIES`, `CATEGORY_PROFILES`, 테스트케이스 검증 함수들을 함께 확인해야 합니다.
+- `main.py`에는 알고리즘 문제 생성 로직이 많이 모여 있습니다. 카테고리나 검증 규칙을 확장할 때는 `VALID_CATEGORIES`, `CATEGORY_PROFILES`, `EASY_ALLOWED_OPT_TC`, `MAX_N_FOR_N2`, `LANGUAGE_MULTIPLIERS`, 테스트케이스 검증 함수들을 함께 확인해야 합니다.
+- 언어별 연산 속도 기준은 `OPERATIONS_PER_MS`(C++ baseline 50,000)와 `LANGUAGE_MULTIPLIERS`로 관리합니다. 채점 서버 환경에 따라 이 값을 조정하면 budget 전체가 일괄 변경됩니다.
+- N2 복잡도의 언어별 max_n 한계는 `MAX_N_FOR_N2`에서 관리합니다 (cpp: 10000, java: 5000, python: 2000).
 - LLM 응답은 JSON 형태를 기대하므로, 프롬프트를 수정한 뒤에는 최소한 객관식/주관식/알고리즘 문제 생성 요청을 각각 한 번씩 실행해 응답 모델 검증을 확인하는 것이 좋습니다.
 
 ## 빠른 점검 명령
